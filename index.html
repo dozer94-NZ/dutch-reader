@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ff7a00">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+<title>Dutch reader</title>
+</head>
+<body>
+<header>
+  <h1>Dutch reader</h1>
+  <button id="btnSettings" class="ghost" aria-label="Settings">⚙ Settings</button>
+</header>
+
+<main>
+  <p id="listStatus" class="muted">Loading word list…</p>
+
+  <section class="card">
+    <div class="row">
+      <label class="btn primary">📷 Take photo
+        <input id="inCamera" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+      <label class="btn">🖼 Pick image
+        <input id="inPick" type="file" accept="image/*" hidden>
+      </label>
+    </div>
+    <div id="ocrBox" hidden>
+      <div class="bar"><div id="ocrBar"></div></div>
+      <p id="ocrMsg" class="muted"></p>
+    </div>
+    <details id="textBox">
+      <summary>Text (type, paste or fix mistakes here)</summary>
+      <textarea id="txt" rows="8" placeholder="The text read from your photo appears here. You can also paste Dutch text."></textarea>
+      <button id="btnCheck" class="btn">Check words</button>
+    </details>
+  </section>
+
+  <div id="queueBar" class="card queue" hidden>
+    <span id="queueMsg"></span>
+    <button id="btnSend" class="btn primary">Send to GitHub</button>
+  </div>
+
+  <div id="results"></div>
+</main>
+
+<dialog id="sheet">
+  <form method="dialog" id="sheetForm">
+    <h2 id="sheetTitle">Add word</h2>
+    <label>Dutch <input id="fDutch" autocomplete="off" autocapitalize="off"></label>
+    <label>English meaning
+      <input id="fEnglish" autocomplete="off" autocapitalize="off" placeholder="type the meaning">
+    </label>
+    <button type="button" id="btnLookup" class="btn">🔎 Suggest from Wiktionary</button>
+    <p id="lookupMsg" class="muted"></p>
+    <label>Sentence it came from <textarea id="fPhrase" rows="3"></textarea></label>
+    <div class="row">
+      <button value="add" id="btnAdd" class="btn primary">Add to queue</button>
+      <button type="button" id="btnIgnore" class="btn">Ignore word</button>
+      <button value="cancel" class="btn ghost">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settings">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <label>Who is using this phone?
+      <select id="sWho"><option>Noah</option><option>Anna</option></select>
+    </label>
+    <label>GitHub token (stays on this phone)
+      <input id="sToken" type="password" autocomplete="off" placeholder="paste it here, not in a chat">
+    </label>
+    <p class="muted">A fine-grained token for the learning-progress repo only, with Contents: read and write.</p>
+    <p id="sInfo" class="muted"></p>
+    <div class="row">
+      <button value="save" id="sSave" class="btn primary">Save</button>
+      <button type="button" id="sReload" class="btn">Reload word list</button>
+      <button type="button" id="sClearIgnored" class="btn">Clear ignored words</button>
+      <button value="cancel" class="btn ghost">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="matcher.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
