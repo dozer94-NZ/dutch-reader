@@ -9,6 +9,11 @@ A small web app (installable on Android from Chrome) for the Dutch word list in 
 - **Add a word**: type a Dutch word and its meaning (or ask Wiktionary for a suggestion). "Send" appends it
   to `dutch/inbox.csv`. A later tool merges inbox words into the word list and both progress files.
 
+- **Flag issue** (button on each word while sorting): reports a wrong meaning, a swapped word, a typo or something else. Appended to `dutch/issues.csv` (`dutch,english,type,note,who,date`). The word list is not changed by the app.
+- **Ideas** tab: a box to pitch an idea for the app. Appended to `dutch/ideas.csv` (`date,who,idea`).
+
+Flags, ideas and typed words are sent straight away; if the phone is offline they stay on the phone and go out at the next save.
+
 No word list or personal data is stored in this repo, only the app. The data is fetched with a GitHub
 token that you paste into the app on your phone (Settings).
 (Version 1 had a photo scanner using Tesseract.js; it was removed on 16 Nov 2026. It is in the Git history.)

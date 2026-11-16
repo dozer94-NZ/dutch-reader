@@ -57,6 +57,7 @@ async function newPhone(browser) {
   });
   return { ctx, page, errors };
 }
+const pageText = page => page.evaluate(() => { const c = document.body.cloneNode(true); c.querySelectorAll('script').forEach(e => e.remove()); return c.textContent.replace(/\s+/g, ' '); });
 const txt = (page, sel) => page.$eval(sel, e => e.textContent);
 const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = []; if (x.length !== y.length) return null; x.forEach((l, i) => { if (l !== y[i]) out.push(i); }); return out; };
 
@@ -132,6 +133,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.click('#btnSave');
   await page.waitForFunction(() => /Couldn't save/.test(document.getElementById('saveMsg').textContent), { timeout: 10000 });
   ok(true, 'offline save fails politely: ' + await txt(page, '#saveMsg'));
+  ok(!/github/i.test(await pageText(page)), 'no "GitHub" anywhere on the page, even in the error message');
   const stored = await page.evaluate(() => localStorage.getItem('dr.pending.Noah'));
   ok(stored && Object.keys(JSON.parse(stored)).length === 1, 'rating kept in the phone\'s storage');
   await page.reload({ waitUntil: 'networkidle0' });
@@ -151,6 +153,29 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.click('#btnSend');
   await page.waitForFunction(() => document.getElementById('queueBar').hidden, { timeout: 10000 });
   ok(/^dutch,english,phrase,who,date,source\nzonnebrand,A sunburn\.,,Noah,.*unreviewed\)\n$/.test(files['dutch/inbox.csv'].text), 'inbox.csv: ' + JSON.stringify(files['dutch/inbox.csv'].text));
+  console.log('\n=== Flag an issue and pitch an idea ===');
+  await page.click('#tabSortBtn');
+  const flagged = await txt(page, '#cWord');
+  await page.click('#btnFlag'); await page.waitForSelector('#flagDlg[open]');
+  await page.select('#flagType', 'wrong way round'); await page.type('#flagNote', 'check this, "english" first?');
+  await page.click('#flagOk');
+  await page.waitForFunction(() => !document.getElementById('flagDlg').open);
+  await page.waitForFunction(() => /flagged/.test(document.getElementById('bFlag').textContent) && !document.getElementById('bFlag').hidden);
+  ok(true, 'flagged chip shows on the card');
+  await new Promise(r => setTimeout(r, 800));
+  const iss = files['dutch/issues.csv'] && files['dutch/issues.csv'].text;
+  ok(iss && iss.startsWith('dutch,english,type,note,who,date\n') && iss.includes(flagged + ',') && /wrong way round,"check this, ""english"" first\?",Noah,/.test(iss), 'issues.csv: ' + JSON.stringify(iss));
+  ok((await page.$eval('#card', e => !e.hidden)) && await txt(page, '#cWord') === flagged, 'flagging does not move to the next word');
+  await page.click('#tabIdeasBtn');
+  await page.type('#ideaText', 'Please add a quiz, with sounds');
+  await page.click('#btnIdea');
+  await page.waitForFunction(() => /Sent/.test(document.getElementById('ideaMsg').textContent), { timeout: 10000 });
+  const ideas = files['dutch/ideas.csv'] && files['dutch/ideas.csv'].text;
+  ok(ideas && ideas.startsWith('date,who,idea\n') && /,Noah,"Please add a quiz, with sounds"\n$/.test(ideas), 'ideas.csv: ' + JSON.stringify(ideas));
+  await page.click('#btnSettings');
+  ok(!/github/i.test(await pageText(page)), 'no "GitHub" anywhere on the page (all tabs, settings, dialogs)');
+  await page.keyboard.press('Escape');
+
   ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await ctx.close();
 

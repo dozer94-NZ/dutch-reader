@@ -8,6 +8,8 @@
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', api: 'https://api.github.com' };
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
+  var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
+  var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
   var AUTOSAVE_EVERY = 10;
   var $ = function (id) { return document.getElementById(id); };
 
@@ -25,8 +27,11 @@
   var vocabCsv = store.get('vocabCsv', '');
   var inboxCsv = store.get('inboxCsv', '');
   var progText = store.get('prog.' + who, '');
-  var pending = store.get('pending.' + who, {});     // ratings not yet saved to GitHub
+  var pending = store.get('pending.' + who, {});     // ratings not yet saved to the wordlist
   var inboxQueue = store.get('queue', []);           // typed words not yet sent
+  var issueQueue = store.get('issues', []);          // flags not yet sent
+  var ideaQueue = store.get('ideas', []);            // ideas not yet sent
+  var flagged = new Set(store.get('flagged', []));   // words this phone has flagged
   var words = [], progress = new Map(), index = M.buildIndex([]);
   var session = { queue: [], pos: 0, done: 0, undo: [] };
   var saving = false, looked = false;
@@ -56,7 +61,7 @@
   async function ghGetRaw(path) {
     var r = await fetch(ghUrl(path), { headers: ghHeaders(true), cache: 'no-store' });
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error('GitHub said ' + r.status);
+    if (!r.ok) throw new Error('the server said ' + r.status);
     return r.text();
   }
   function fromB64(b) {
@@ -72,7 +77,7 @@
   async function ghGetJson(path) {
     var r = await fetch(ghUrl(path), { headers: ghHeaders(false), cache: 'no-store' });
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error('GitHub said ' + r.status);
+    if (!r.ok) throw new Error('the server said ' + r.status);
     var j = await r.json();
     var text = j.content ? fromB64(j.content) : (j.size ? await ghGetRaw(path) : '');
     return { sha: j.sha, text: text };
@@ -115,17 +120,17 @@
     if (token) {
       try {
         var v = await ghGetRaw(CFG.vocab);
-        if (v === null) throw new Error('word list not found, check the token');
+        if (v === null) throw new Error('word list not found, check the access key');
         var p = await ghGetRaw(progPath());
         if (p === null) throw new Error(progPath() + ' not found');
         var ib = await ghGetRaw(CFG.inbox);
         vocabCsv = v; progText = p; inboxCsv = ib || '';
         store.set('vocabCsv', vocabCsv); store.set('prog.' + who, progText); store.set('inboxCsv', inboxCsv);
         store.set('fetched', new Date().toISOString());
-      } catch (e) { note = ". Couldn't reach GitHub (" + e.message + '); using the copy saved on this phone.'; bad = true; }
+      } catch (e) { note = ". Couldn't reach the wordlist (" + e.message + '); using the copy saved on this phone.'; bad = true; }
     } else if (!vocabCsv) bad = true;
     rebuild();
-    if (!words.length) setStatus('No word list yet. Open Settings and add your GitHub token.', true);
+    if (!words.length) setStatus('No word list yet. Open Settings and add your access key.', true);
     else {
       var f = store.get('fetched', '');
       setStatus('Word list: ' + words.length.toLocaleString() + ' words, ' + who + "'s progress" +
@@ -133,6 +138,7 @@
     }
     startSession();
     renderQueue();
+    flushExtras();
   }
 
   // ---------- Sort words ----------
@@ -152,6 +158,8 @@
     var n = pendingList().length;
     $('saveMsg').textContent = saving ? 'Saving…' : (n ? n + (n === 1 ? ' rating' : ' ratings') + ' waiting to save' : (words.length ? 'All saved' : ''));
     $('btnSave').disabled = saving || !n;
+    var f = issueQueue.length;
+    if (f) $('saveMsg').textContent += ' · ' + f + (f === 1 ? ' flag' : ' flags') + ' waiting to send';
   }
   function showCard() {
     var w = session.queue[session.pos];
@@ -170,6 +178,7 @@
     var now = T.levelOf(curRow(w), today());
     $('bNow').textContent = now === null ? 'not rated yet' : 'now: ' + T.LEVELS[now].n + ' ' + T.LEVELS[now].short;
     $('bNow').className = 'chip' + (now === null ? '' : ' ok');
+    $('bFlag').hidden = !flagged.has(T.keyOf(w.dutch, w.english));
     Array.prototype.forEach.call(rateBox.children, function (b) { b.className = (now !== null && Number(b.getAttribute('data-n')) === now) ? 'now' : ''; });
     var showEn = $('showEn').checked;
     $('cEng').textContent = showEn ? w.english : '';
@@ -208,7 +217,7 @@
   async function save() {
     var list = pendingList();
     if (!list.length || saving) return;
-    if (!token) { $('saveMsg').textContent = 'Add your GitHub token in Settings first.'; return; }
+    if (!token) { $('saveMsg').textContent = 'Add your access key in Settings first.'; return; }
     saving = true; updateCounts();
     var snap = {}; Object.keys(pending).forEach(function (k) { snap[k] = pending[k]; });
     var changes = Object.keys(snap).map(function (k) { return { dutch: snap[k].dutch, english: snap[k].english, fields: fieldsOfEntry(snap[k]) }; });
@@ -224,11 +233,11 @@
         if (res.text === cur.text) { forget(cur.text); saving = false; updateCounts(); $('saveMsg').textContent = 'Already saved.'; return; }
         var r = await ghPut(progPath(), 'Self-assessed ' + res.changed + ' word(s) in Dutch words app (' + who + ')', res.text, cur.sha);
         if (r.ok) {
-          forget(res.text); saving = false; updateCounts();
-          $('saveMsg').textContent = 'Saved ' + res.changed + (res.changed === 1 ? ' word' : ' words') + ' to GitHub.';
+          forget(res.text); saving = false; updateCounts(); flushExtras();
+          $('saveMsg').textContent = 'Saved ' + res.changed + (res.changed === 1 ? ' word' : ' words') + ' in the wordlist.';
           return;
         }
-        if (r.status !== 409 && r.status !== 422) throw new Error('GitHub said ' + r.status);
+        if (r.status !== 409 && r.status !== 422) throw new Error('the server said ' + r.status);
       }   // 409/422: someone (the phone) saved first: read the newest file and apply again
       throw new Error('the file kept changing, press Save again');
     } catch (e) {
@@ -284,37 +293,90 @@
         h('button', { class: 'btn small', type: 'button', text: 'Remove', onclick: function () { inboxQueue.splice(i, 1); store.set('queue', inboxQueue); rebuild(); renderQueue(); } })));
     });
   }
+  // Append rows to a CSV file in the wordlist folder (creates it with a header if needed).
+  // keyOf makes a duplicate check string for one row (an array of fields). Returns how many rows were added.
+  async function appendRows(path, header, rows, message, keyOf) {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var cur = await ghGetJson(path);
+      var text = cur ? cur.text : '';
+      if (!text) text = header + '\n'; else if (text.slice(-1) !== '\n') text += '\n';
+      var seen = new Set(M.csvRecords(text).map(function (r) { return keyOf(Object.keys(r).map(function (k) { return r[k]; })); }));
+      var add = rows.filter(function (r) { return !seen.has(keyOf(r)); });
+      if (!add.length) return { added: 0, text: text };
+      text += add.map(function (r) { return M.csvLine(r); }).join('\n') + '\n';
+      var res = await ghPut(path, message(add.length), text, cur && cur.sha);
+      if (res.ok) return { added: add.length, text: text };
+      if (res.status !== 409 && res.status !== 422) throw new Error('the server said ' + res.status);
+    }
+    throw new Error('the file changed while sending, try again');
+  }
   async function sendQueue() {
     if (!inboxQueue.length) return;
     if (!token) { openSettings(); return; }
     var btn = $('btnSend'); btn.disabled = true; $('queueMsg').textContent = 'Sending…';
     try {
-      for (var attempt = 0; attempt < 2; attempt++) {
-        var cur = await ghGetJson(CFG.inbox);
-        var text = cur ? cur.text : '';
-        if (!text) text = INBOX_HEADER + '\n'; else if (text.slice(-1) !== '\n') text += '\n';
-        var seen = new Set(M.csvRecords(text).map(function (r) { return M.norm(r.dutch) + '|' + M.norm(r.english); }));
-        var add = inboxQueue.filter(function (q) { return !seen.has(M.norm(q.dutch) + '|' + M.norm(q.english)); });
-        if (!add.length) { inboxQueue = []; store.set('queue', inboxQueue); renderQueue(); btn.disabled = false; return; }
-        text += add.map(function (q) { return M.csvLine([q.dutch, q.english, q.phrase, q.who, q.date, q.source]); }).join('\n') + '\n';
-        var r = await ghPut(CFG.inbox, 'Add ' + add.length + ' word(s) from Dutch words app (' + who + ')', text, cur && cur.sha);
-        if (r.ok) {
-          inboxQueue = []; store.set('queue', inboxQueue); inboxCsv = text; store.set('inboxCsv', text);
-          rebuild(); renderQueue(); $('lookupMsg').textContent = 'Sent ' + add.length + ' word(s).'; btn.disabled = false; return;
-        }
-        if (r.status !== 409 && r.status !== 422) throw new Error('GitHub said ' + r.status);
-      }
-      throw new Error('the inbox changed while sending, press Send again');
+      var rows = inboxQueue.map(function (q) { return [q.dutch, q.english, q.phrase, q.who, q.date, q.source]; });
+      var r = await appendRows(CFG.inbox, INBOX_HEADER, rows, function (n) { return 'Add ' + n + ' word(s) from Dutch words app (' + who + ')'; },
+                               function (f) { return M.norm(f[0]) + '|' + M.norm(f[1]); });
+      inboxQueue = []; store.set('queue', inboxQueue); inboxCsv = r.text; store.set('inboxCsv', r.text);
+      rebuild(); renderQueue(); $('lookupMsg').textContent = r.added ? 'Sent ' + r.added + ' word(s).' : 'Those words were already sent.';
     } catch (e) {
       $('queueMsg').textContent = "Couldn't send (" + e.message + '). ' + inboxQueue.length + ' saved on this phone; try again later.';
     }
     btn.disabled = false;
   }
 
+  // ---------- flags and ideas (sent straight away; kept on the phone if that fails) ----------
+  var flushing = false;
+  async function flushExtras() {
+    if (flushing || !token || (!issueQueue.length && !ideaQueue.length)) return;
+    flushing = true;
+    try {
+      if (issueQueue.length) {
+        var rows = issueQueue.map(function (q) { return [q.dutch, q.english, q.type, q.note, q.who, q.date]; });
+        await appendRows(ISSUES.path, ISSUES.header, rows, function (n) { return 'Flag ' + n + ' word problem(s) from Dutch words app (' + who + ')'; },
+                         function (f) { return M.norm(f[0]) + '|' + M.norm(f[1]) + '|' + f[2] + '|' + f[4] + '|' + M.norm(f[3]); });
+        issueQueue = []; store.set('issues', issueQueue);
+      }
+      if (ideaQueue.length) {
+        var irows = ideaQueue.map(function (q) { return [q.date, q.who, q.idea]; });
+        await appendRows(IDEAS.path, IDEAS.header, irows, function (n) { return 'Idea from ' + who + ' (Dutch words app)'; },
+                         function (f) { return f[0] + '|' + f[1] + '|' + f[2]; });
+        ideaQueue = []; store.set('ideas', ideaQueue);
+        $('ideaMsg').textContent = 'Sent. Thank you!';
+      }
+    } catch (e) { /* stays on the phone, tried again at the next save */ }
+    flushing = false; updateCounts();
+  }
+  function openFlag() {
+    var w = session.queue[session.pos]; if (!w) return;
+    $('flagWord').textContent = w.dutch + ' = ' + w.english;
+    $('flagNote').value = ''; $('flagType').selectedIndex = 0;
+    $('flagDlg').showModal();
+  }
+  function onFlagSubmit(ev) {
+    if (!(ev.submitter && ev.submitter.value === 'flag')) return;
+    var w = session.queue[session.pos]; if (!w) return;
+    issueQueue.push({ dutch: w.dutch, english: w.english, type: $('flagType').value, note: $('flagNote').value.trim(), who: who, date: today() });
+    store.set('issues', issueQueue);
+    flagged.add(T.keyOf(w.dutch, w.english)); store.set('flagged', Array.from(flagged));
+    showCard(); flushExtras();
+  }
+  function sendIdea() {
+    var t = $('ideaText').value.trim(), msg = $('ideaMsg');
+    if (!t) { msg.className = 'err grow'; msg.textContent = 'Write your idea first.'; return; }
+    ideaQueue.push({ date: today(), who: who, idea: t }); store.set('ideas', ideaQueue);
+    $('ideaText').value = ''; msg.className = 'muted grow';
+    msg.textContent = token ? 'Sending…' : 'Saved on this phone. Add the access key in Settings to send it.';
+    flushExtras().then(function () { if (ideaQueue.length && token) msg.textContent = "Couldn't send it yet. It is saved on this phone and goes out next time."; });
+  }
+
   // ---------- tabs, settings, start ----------
   function tab(which) {
-    $('tabSort').hidden = which !== 'sort'; $('tabAdd').hidden = which !== 'add';
-    $('tabSortBtn').className = 'tab' + (which === 'sort' ? ' on' : ''); $('tabAddBtn').className = 'tab' + (which === 'add' ? ' on' : '');
+    ['sort', 'add', 'ideas'].forEach(function (t) {
+      var cap = t.charAt(0).toUpperCase() + t.slice(1);
+      $('tab' + cap).hidden = which !== t; $('tab' + cap + 'Btn').className = 'tab' + (which === t ? ' on' : '');
+    });
   }
   function openSettings() {
     $('sWho').value = who; $('sToken').value = token;
@@ -333,6 +395,10 @@
 
   $('tabSortBtn').addEventListener('click', function () { tab('sort'); });
   $('tabAddBtn').addEventListener('click', function () { tab('add'); });
+  $('tabIdeasBtn').addEventListener('click', function () { tab('ideas'); });
+  $('btnFlag').addEventListener('click', openFlag);
+  $('flagForm').addEventListener('submit', onFlagSubmit);
+  $('btnIdea').addEventListener('click', sendIdea);
   $('mode').addEventListener('change', startSession);
   $('showEn').checked = !!store.get('showEn', false);
   $('showEn').addEventListener('change', function () { store.set('showEn', this.checked); showCard(); });
@@ -350,7 +416,7 @@
   $('btnSend').addEventListener('click', sendQueue);
   document.addEventListener('keydown', function (ev) {
     var tg = ev.target && ev.target.tagName;
-    if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT' || $('tabSort').hidden || $('settings').open) return;
+    if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT' || $('tabSort').hidden || $('settings').open || $('flagDlg').open) return;
     if (/^[0-5]$/.test(ev.key)) rate(Number(ev.key));
     else if (ev.key === ' ') { ev.preventDefault(); reveal(); }
     else if (ev.key === 'Backspace') undo();

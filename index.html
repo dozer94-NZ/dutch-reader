@@ -18,6 +18,7 @@
 <nav>
   <button id="tabSortBtn" class="tab on">Sort words</button>
   <button id="tabAddBtn" class="tab">Add a word</button>
+  <button id="tabIdeasBtn" class="tab">💡 Ideas</button>
 </nav>
 
 <main>
@@ -44,7 +45,7 @@
     </div>
 
     <div id="card" class="card" hidden>
-      <div class="badges"><span id="bLevel" class="chip"></span><span id="bNow" class="chip"></span></div>
+      <div class="badges"><span id="bLevel" class="chip"></span><span id="bNow" class="chip"></span><span id="bFlag" class="chip flag" hidden>⚑ flagged</span></div>
       <div id="cWord" class="word"></div>
       <div id="cEng" class="eng"></div>
       <button id="btnReveal" class="btn" type="button">Show English</button>
@@ -52,6 +53,7 @@
       <div class="row">
         <button id="btnBack" class="btn" type="button">↶ Undo</button>
         <button id="btnSkip" class="btn" type="button">Skip →</button>
+        <button id="btnFlag" class="btn" type="button">⚑ Flag issue</button>
       </div>
     </div>
     <p id="sortMsg" class="muted"></p>
@@ -80,11 +82,45 @@
     </div>
     <div id="queueBar" class="card queue" hidden>
       <span id="queueMsg"></span>
-      <button id="btnSend" class="btn primary" type="button">Send to GitHub</button>
+      <button id="btnSend" class="btn primary" type="button">Send to wordlist</button>
     </div>
     <ul id="queueList" class="list"></ul>
   </section>
+
+  <!-- ===== Ideas ===== -->
+  <section id="tabIdeas" hidden>
+    <div class="card">
+      <h2 style="margin-top:0">Pitch an idea</h2>
+      <p class="muted">Something that would make this app better? A button, a game, something annoying? Write it here and send it.</p>
+      <textarea id="ideaText" rows="5" placeholder="My idea is…"></textarea>
+      <div class="row">
+        <button id="btnIdea" class="btn primary" type="button">Send idea</button>
+        <span id="ideaMsg" class="grow muted"></span>
+      </div>
+    </div>
+  </section>
 </main>
+
+<dialog id="flagDlg">
+  <form method="dialog" id="flagForm">
+    <h2>Flag a problem</h2>
+    <p id="flagWord" class="muted"></p>
+    <label>What is wrong?
+      <select id="flagType">
+        <option value="meaning wrong">The meaning is wrong</option>
+        <option value="wrong way round">Dutch and English are the wrong way round</option>
+        <option value="typo dutch">Typo in the Dutch</option>
+        <option value="typo english">Typo in the English</option>
+        <option value="other">Something else</option>
+      </select>
+    </label>
+    <label>Note (optional) <textarea id="flagNote" rows="3" placeholder="What should it say?"></textarea></label>
+    <div class="row">
+      <button value="flag" id="flagOk" class="btn primary">Flag it</button>
+      <button value="cancel" class="btn ghost">Cancel</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="settings">
   <form method="dialog">
@@ -92,14 +128,14 @@
     <label>Who is using this phone?
       <select id="sWho"><option>Noah</option><option>Anna</option></select>
     </label>
-    <label>GitHub token (stays on this phone)
+    <label>Access key (stays on this phone)
       <input id="sToken" type="password" autocomplete="off" placeholder="paste it here, not in a chat">
     </label>
-    <p class="muted">A fine-grained token for the learning-progress repo only, with Contents: read and write.</p>
+    <p class="muted">The access key made for this phone. It only opens the wordlist.</p>
     <p id="sInfo" class="muted"></p>
     <div class="row">
       <button value="save" id="sSave" class="btn primary">Save</button>
-      <button type="button" id="sReload" class="btn">Reload from GitHub</button>
+      <button type="button" id="sReload" class="btn">Reload wordlist</button>
       <button value="cancel" class="btn ghost">Close</button>
     </div>
   </form>
