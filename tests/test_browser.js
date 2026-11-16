@@ -401,7 +401,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   for (let t = 0; t < 3; t++) { await page.click('#tabPlayBtn'); await page.click('#btnRound'); const l = await play(page, () => 'right'); if (l.some(x => x.opts.some(o => / \u2014 /.test(o)))) seenDrill = true; await page.click('#qDone'); }
   ok(!seenDrill, 'three quick rounds: no verb drill row among the options');
   await page.click('#tabSortBtn'); await page.select('#mode', 'all');
-  ok(new RegExp('\\b' + NW.toLocaleString() + ' left in this set').test(await txt(page, '#sortMsg')), 'sorting "all words" offers exactly the ' + NW + ' words, no verb drill rows: ' + await txt(page, '#sortMsg'));
+  ok(new RegExp('\\b' + NW + ' left in this set').test(await txt(page, '#sortMsg')), 'sorting "all words" offers exactly the ' + NW + ' words, no verb drill rows: ' + await txt(page, '#sortMsg'));
   await ctx.close();
 
   await browser.close(); srv.close();
