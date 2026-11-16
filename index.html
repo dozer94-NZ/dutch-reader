@@ -7,62 +7,84 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="style.css">
-<title>Dutch reader</title>
+<title>Dutch words</title>
 </head>
 <body>
 <header>
-  <h1>Dutch reader</h1>
+  <h1>Dutch words</h1>
   <button id="btnSettings" class="ghost" aria-label="Settings">⚙ Settings</button>
 </header>
 
-<main>
-  <p id="listStatus" class="muted">Loading word list…</p>
+<nav>
+  <button id="tabSortBtn" class="tab on">Sort words</button>
+  <button id="tabAddBtn" class="tab">Add a word</button>
+</nav>
 
-  <section class="card">
-    <div class="row">
-      <label class="btn primary">📷 Take photo
-        <input id="inCamera" type="file" accept="image/*" capture="environment" hidden>
-      </label>
-      <label class="btn">🖼 Pick image
-        <input id="inPick" type="file" accept="image/*" hidden>
-      </label>
+<main>
+  <p id="listStatus" class="muted">Loading…</p>
+
+  <!-- ===== Sort words ===== -->
+  <section id="tabSort">
+    <div class="card">
+      <div class="row">
+        <label class="grow">Show
+          <select id="mode">
+            <option value="unrated">Words I haven't rated yet</option>
+            <option value="all">All words</option>
+            <option value="0">Re-check: rated 0 New</option>
+            <option value="1">Re-check: rated 1 New LingQ</option>
+            <option value="2">Re-check: rated 2 Recognized</option>
+            <option value="3">Re-check: rated 3 Familiar</option>
+            <option value="4">Re-check: rated 4 Learned</option>
+            <option value="5">Re-check: rated 5 Known ✓</option>
+          </select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="showEn"> Show the English straight away</label>
     </div>
-    <div id="ocrBox" hidden>
-      <div class="bar"><div id="ocrBar"></div></div>
-      <p id="ocrMsg" class="muted"></p>
+
+    <div id="card" class="card" hidden>
+      <div class="badges"><span id="bLevel" class="chip"></span><span id="bNow" class="chip"></span></div>
+      <div id="cWord" class="word"></div>
+      <div id="cEng" class="eng"></div>
+      <button id="btnReveal" class="btn" type="button">Show English</button>
+      <div id="rate" class="rate"></div>
+      <div class="row">
+        <button id="btnBack" class="btn" type="button">↶ Undo</button>
+        <button id="btnSkip" class="btn" type="button">Skip →</button>
+      </div>
     </div>
-    <details id="textBox">
-      <summary>Text (type, paste or fix mistakes here)</summary>
-      <textarea id="txt" rows="8" placeholder="The text read from your photo appears here. You can also paste Dutch text."></textarea>
-      <button id="btnCheck" class="btn">Check words</button>
+    <p id="sortMsg" class="muted"></p>
+    <div class="card">
+      <div class="row">
+        <span id="saveMsg" class="grow muted"></span>
+        <button id="btnSave" class="btn primary" type="button">Save to GitHub</button>
+      </div>
+    </div>
+    <details class="muted">
+      <summary>What the numbers mean</summary>
+      <p>0 New: not yet known. 1 New LingQ: just met it, asked first. 2 Recognized: asked soon. 3 Familiar: asked less often. 4 Learned: asked now and then. 5 Known ✓: no need to practise it for a long time.</p>
     </details>
   </section>
 
-  <div id="queueBar" class="card queue" hidden>
-    <span id="queueMsg"></span>
-    <button id="btnSend" class="btn primary">Send to GitHub</button>
-  </div>
-
-  <div id="results"></div>
-</main>
-
-<dialog id="sheet">
-  <form method="dialog" id="sheetForm">
-    <h2 id="sheetTitle">Add word</h2>
-    <label>Dutch <input id="fDutch" autocomplete="off" autocapitalize="off"></label>
-    <label>English meaning
-      <input id="fEnglish" autocomplete="off" autocapitalize="off" placeholder="type the meaning">
-    </label>
-    <button type="button" id="btnLookup" class="btn">🔎 Suggest from Wiktionary</button>
-    <p id="lookupMsg" class="muted"></p>
-    <label>Sentence it came from <textarea id="fPhrase" rows="3"></textarea></label>
-    <div class="row">
-      <button value="add" id="btnAdd" class="btn primary">Add to queue</button>
-      <button type="button" id="btnIgnore" class="btn">Ignore word</button>
-      <button value="cancel" class="btn ghost">Cancel</button>
+  <!-- ===== Add a word ===== -->
+  <section id="tabAdd" hidden>
+    <div class="card">
+      <label>Dutch <input id="fDutch" autocomplete="off" autocapitalize="off"></label>
+      <p id="dutchNote" class="muted"></p>
+      <label>English meaning <input id="fEnglish" autocomplete="off" autocapitalize="off" placeholder="type the meaning"></label>
+      <button type="button" id="btnLookup" class="btn">🔎 Suggest from Wiktionary</button>
+      <p id="lookupMsg" class="muted"></p>
+      <label>Example sentence (optional) <textarea id="fPhrase" rows="2"></textarea></label>
+      <button id="btnAdd" class="btn primary" type="button">Add to queue</button>
     </div>
-  </form>
-</dialog>
+    <div id="queueBar" class="card queue" hidden>
+      <span id="queueMsg"></span>
+      <button id="btnSend" class="btn primary" type="button">Send to GitHub</button>
+    </div>
+    <ul id="queueList" class="list"></ul>
+  </section>
+</main>
 
 <dialog id="settings">
   <form method="dialog">
@@ -77,15 +99,14 @@
     <p id="sInfo" class="muted"></p>
     <div class="row">
       <button value="save" id="sSave" class="btn primary">Save</button>
-      <button type="button" id="sReload" class="btn">Reload word list</button>
-      <button type="button" id="sClearIgnored" class="btn">Clear ignored words</button>
+      <button type="button" id="sReload" class="btn">Reload from GitHub</button>
       <button value="cancel" class="btn ghost">Close</button>
     </div>
   </form>
 </dialog>
 
-<script src="vendor/tesseract/tesseract.min.js"></script>
 <script src="matcher.js"></script>
+<script src="triage.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

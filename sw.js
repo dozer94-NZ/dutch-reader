@@ -1,7 +1,7 @@
 // Service worker: keeps the app (and the text-recognition files) on the phone so it opens offline.
 // Network first, so a new version on GitHub shows up as soon as you are online.
 // It never touches api.github.com (word list and inbox always go straight to GitHub).
-const CACHE = 'dutch-reader-v1';
+const CACHE = 'dutch-words-v2';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())

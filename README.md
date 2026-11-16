@@ -1,33 +1,56 @@
-# Dutch reader
+# Dutch words
 
-Take a photo (or pick a screenshot) of a page of Dutch text. The app reads the text, checks every
-word against the Dutch word list in the private `learning-progress` repo, shows the words you
-don't know yet, and lets you queue them. "Send" appends the queued words to `dutch/inbox.csv`
-in that repo. It never edits the word list or the progress files.
+A small web app (installable on Android from Chrome) for the Dutch word list in the private
+`learning-progress` repo.
 
-No word list or personal data is stored in this repo. It only holds the app. The word list is
-fetched with a GitHub token that you paste into the app on your phone (Settings).
+- **Sort words**: one word at a time, tap how well you know it, 0 to 5 (LingQ levels). Your rating is
+  saved into your own progress file (`dutch/noah.csv` or `dutch/anna.csv`), changing only the lines of
+  the words you rated.
+- **Add a word**: type a Dutch word and its meaning (or ask Wiktionary for a suggestion). "Send" appends it
+  to `dutch/inbox.csv`. A later tool merges inbox words into the word list and both progress files.
+
+No word list or personal data is stored in this repo, only the app. The data is fetched with a GitHub
+token that you paste into the app on your phone (Settings).
+(Version 1 had a photo scanner using Tesseract.js; it was removed on 16 Nov 2026. It is in the Git history.)
+
+## The levels and how they are saved
+Saved with the statuses the Cobra phone already understands, so Imke reacts straight away.
+
+| Tap | LingQ name | `status` | `streak` | `next_due` |
+|---|---|---|---|---|
+| 0 | New | `unknown` | 0 | rating date (marks "rated 0") |
+| 1 | New LingQ | `needs_practice` | 0 | today |
+| 2 | Recognized | `learning` | 1 | +2 days |
+| 3 | Familiar | `learning` | 2 | +7 days |
+| 4 | Learned | `known` | 3 | +60 days |
+| 5 | Known ✓ | `known` | 5 | +365 days |
+
+`right`, `wrong`, `last_practised` and `pronunciation` are never changed. A word counts as not rated
+yet if it is `unknown` with an empty `next_due`. Imke's later answers use her normal rules and replace the
+rating. When the app reads a row back it guesses the level from `status`, `streak` and `next_due`
+(4 versus 5 is told apart by a due date more than 200 days away).
 
 ## Files
 | File | What it does |
 |---|---|
-| `index.html`, `style.css` | The screens |
-| `app.js` | Buttons, photo reading, add/ignore, sending to GitHub |
-| `matcher.js` | Splits text into words and sorts them: known / maybe a form of a known word / new / probably a name. No screen code, so it can be tested alone |
-| `sw.js`, `manifest.webmanifest`, `icons/` | Lets Chrome install it on the home screen and open it offline |
-| `vendor/tesseract/` | Tesseract.js (Apache-2.0): the text reader, its engine and the Dutch language data. Self-hosted so the app works without a CDN |
-| `tests/` | `node tests/test_matcher.js` (matching), `tests/test_browser.js` (whole app in headless Chrome with a fake GitHub) |
+| `index.html`, `style.css`, `app.js` | The screens |
+| `triage.js` | The rating rules, the line-by-line saving into the progress file, and the order words come in |
+| `matcher.js` | Reads CSV, and spots forms of words you know (for "Add a word") |
+| `sw.js`, `manifest.webmanifest`, `icons/` | Lets Chrome install it and open it offline |
+| `tests/` | `node tests/test_matcher.js [vocab.csv]`, `node tests/test_triage.js [dutch folder]`, `tests/test_browser.js` (whole app in headless Chrome with a fake GitHub) |
 
-## inbox.csv format (written to the learning-progress repo)
-`dutch,english,phrase,who,date,source`. `source` is `dutch-reader` when the meaning was typed
-by hand, or `dutch-reader+wiktionary (meaning unreviewed)` when it came from the Wiktionary
-suggestion and was not changed. A later tool merges inbox rows into the word list and both
-progress files.
+## Saving
+Every 10 ratings, on the Save button, and when you leave the page. It reads the newest file from GitHub,
+changes only the lines you rated, and writes it back. If the phone (Imke) saved in the meantime it reads again and
+applies your ratings on top. Offline, ratings stay on the phone until the next save.
+
+## inbox.csv
+`dutch,english,phrase,who,date,source`. `source` is `dutch-reader` for a typed meaning, or
+`dutch-reader+wiktionary (meaning unreviewed)` for an unchanged Wiktionary suggestion.
 
 ## Token
-A fine-grained GitHub token for the `learning-progress` repo only, permission Contents: read and write.
-It is stored in this browser's local storage on the phone. If the phone is lost, revoke the token on GitHub.
+A fine-grained GitHub token for the `learning-progress` repo only, permission Contents: read and write,
+stored in this browser's local storage. If the phone is lost, revoke the token on GitHub.
 
 ## Credits
-Text reading: Tesseract.js and Tesseract (Apache-2.0), Dutch data from tessdata_best (Apache-2.0).
-Meaning suggestions: Wiktionary (CC BY-SA).
+Meaning suggestions: Wiktionary (CC BY-SA). The word levels in the list come from NT2Lex (CC BY-NC-SA 4.0).

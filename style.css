@@ -1,7 +1,7 @@
 :root { --orange: #ff7a00; --bg: #faf8f5; --card: #fff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e4e0da; --ok: #1a7f37; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--orange); color: #fff; position: sticky; top: 0; z-index: 2; }
+header { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--orange); color: #fff; position: sticky; top: 0; z-index: 2; }
 h1 { font-size: 20px; margin: 0; }
 main { max-width: 640px; margin: 0 auto; padding: 12px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
@@ -32,3 +32,22 @@ details.sec > summary { font-weight: 600; padding: 6px 0; cursor: pointer; }
 dialog { width: min(92vw, 520px); border: 0; border-radius: 14px; padding: 16px; }
 dialog::backdrop { background: rgba(0,0,0,.4); }
 .err { color: #b3261e; }
+
+/* v2: sort words + tabs */
+nav { display: flex; background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 48px; z-index: 1; }
+.tab { flex: 1; padding: 12px; border: 0; border-bottom: 3px solid transparent; background: transparent; font: inherit; cursor: pointer; color: var(--muted); }
+.tab.on { border-bottom-color: var(--orange); color: var(--ink); font-weight: 600; }
+.grow { flex: 1; }
+label.check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 15px; }
+label.check input { width: auto; margin: 0; }
+.badges { display: flex; gap: 6px; min-height: 22px; }
+.word { font-size: 34px; font-weight: 700; text-align: center; margin: 18px 0 6px; word-break: break-word; }
+.eng { font-size: 22px; text-align: center; color: var(--muted); min-height: 30px; margin-bottom: 8px; }
+#btnReveal { display: block; margin: 0 auto 12px; }
+.rate { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.rate button { padding: 12px 4px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font: inherit; cursor: pointer; line-height: 1.15; }
+.rate button b { display: block; font-size: 22px; }
+.rate button span { font-size: 12px; color: var(--muted); }
+.rate button.now { border-color: var(--orange); box-shadow: inset 0 0 0 2px var(--orange); }
+.rate button:active { background: #fff1e0; }
+.chip.lv { background: #e3edff; color: #234; }
