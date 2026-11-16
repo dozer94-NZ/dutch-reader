@@ -32,6 +32,9 @@
   var issueQueue = store.get('issues', []);          // flags not yet sent
   var ideaQueue = store.get('ideas', []);            // ideas not yet sent
   var flagged = new Set(store.get('flagged', []));   // words this phone has flagged
+  var people = store.get('people', ['Noah', 'Anna']);  // everyone with a progress file
+  var RESERVED = ['inbox', 'issues', 'ideas', 'people', 'readme', 'vocab'];
+  var PROG_HEADER = 'dutch,english,status,right,wrong,streak,last_practised,next_due,pronunciation';
   var words = [], progress = new Map(), index = M.buildIndex([]);
   var session = { queue: [], pos: 0, done: 0, undo: [] };
   var saving = false, looked = false;
@@ -81,6 +84,12 @@
     var j = await r.json();
     var text = j.content ? fromB64(j.content) : (j.size ? await ghGetRaw(path) : '');
     return { sha: j.sha, text: text };
+  }
+  async function ghList(path) {
+    var r = await fetch(ghUrl(path), { headers: ghHeaders(false), cache: 'no-store' });
+    if (!r.ok) throw new Error('the server said ' + r.status);
+    var j = await r.json();
+    return Array.isArray(j) ? j : [];
   }
   async function ghPut(path, message, text, sha) {
     var body = { message: message, content: toB64(text) };
@@ -139,6 +148,7 @@
     startSession();
     renderQueue();
     flushExtras();
+    if (token && !bad) loadPeople();
   }
 
   // ---------- Sort words ----------
@@ -371,6 +381,55 @@
     flushExtras().then(function () { if (ideaQueue.length && token) msg.textContent = "Couldn't send it yet. It is saved on this phone and goes out next time."; });
   }
 
+  // ---------- people ----------
+  function nice(name) { return name.charAt(0).toUpperCase() + name.slice(1); }
+  function populateWho() {
+    var list = people.slice(); if (list.indexOf(who) < 0) list.push(who);
+    list.sort(); people = list;
+    var sel = $('sWho'); sel.textContent = '';
+    list.forEach(function (n) { var o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
+    sel.value = who;
+  }
+  async function loadPeople() {
+    if (!token) return;
+    try {
+      var names = (await ghList('dutch')).filter(function (e) { return e.type === 'file' && /\.csv$/.test(e.name); })
+        .map(function (e) { return e.name.slice(0, -4); }).filter(function (n) { return RESERVED.indexOf(n) < 0; }).map(nice);
+      if (names.length) { people = names; store.set('people', people); }
+    } catch (e) { /* keep the saved list */ }
+  }
+  async function addPerson() {
+    var raw = $('sNewName').value.trim().toLowerCase().replace(/\s+/g, ''), msg = $('sPersonMsg');
+    msg.className = 'muted';
+    if (!/^[a-z][a-z0-9-]{1,19}$/.test(raw)) { msg.className = 'err'; msg.textContent = 'Use 2 to 20 letters or numbers, no spaces or accents.'; return; }
+    if (RESERVED.indexOf(raw) >= 0) { msg.className = 'err'; msg.textContent = '"' + raw + '" is used for something else. Pick another name.'; return; }
+    if (!token) { msg.className = 'err'; msg.textContent = 'Add your access key first.'; return; }
+    if (!words.length) { msg.className = 'err'; msg.textContent = 'Load the wordlist first.'; return; }
+    var path = 'dutch/' + raw + '.csv', name = nice(raw);
+    msg.textContent = 'Creating…';
+    try {
+      if (await ghGetJson(path)) {
+        if (people.indexOf(name) < 0) people.push(name);
+        populateWho(); $('sWho').value = name;
+        msg.textContent = name + ' already has a list. Chosen above; tap Save to switch to it.'; return;
+      }
+      var seen = new Set(), rows = [];
+      words.forEach(function (w) { var k = T.keyOf(w.dutch, w.english); if (!seen.has(k)) { seen.add(k); rows.push(w); } });
+      rows.sort(function (a, b) {
+        var x = a.dutch.toLowerCase(), y = b.dutch.toLowerCase();
+        if (x !== y) return x < y ? -1 : 1;
+        x = a.english.toLowerCase(); y = b.english.toLowerCase();
+        return x < y ? -1 : (x > y ? 1 : 0);
+      });
+      var text = PROG_HEADER + '\n' + rows.map(function (w) { return M.csvLine([w.dutch, w.english, 'unknown', '0', '0', '0', '', '', '']); }).join('\n') + '\n';
+      var r = await ghPut(path, "Add " + name + "'s progress file (" + rows.length + ' words, all unknown) from Dutch words app', text, null);
+      if (!r.ok) throw new Error('the server said ' + r.status);
+      if (people.indexOf(name) < 0) people.push(name);
+      store.set('people', people); populateWho(); $('sWho').value = name; $('sNewName').value = '';
+      msg.textContent = 'Created ' + name + "'s list with " + rows.length.toLocaleString() + ' words. Tap Save to switch to it.';
+    } catch (e) { msg.className = 'err'; msg.textContent = "Couldn't create it (" + e.message + ').'; }
+  }
+
   // ---------- tabs, settings, start ----------
   function tab(which) {
     ['sort', 'add', 'ideas'].forEach(function (t) {
@@ -379,7 +438,8 @@
     });
   }
   function openSettings() {
-    $('sWho').value = who; $('sToken').value = token;
+    populateWho(); $('sToken').value = token; $('sPersonMsg').textContent = '';
+    loadPeople().then(populateWho);
     $('sInfo').textContent = pendingList().length + ' rating(s) not saved yet.';
     $('settings').showModal();
   }
@@ -408,6 +468,8 @@
   $('btnSave').addEventListener('click', save);
   $('btnSettings').addEventListener('click', openSettings);
   $('sSave').addEventListener('click', applySettings);
+  $('sAddPerson').addEventListener('click', addPerson);
+  $('sNewName').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); addPerson(); } });
   $('sReload').addEventListener('click', function () { $('settings').close(); applySettings(); });
   $('fDutch').addEventListener('input', onDutchInput);
   $('fEnglish').addEventListener('input', function () { looked = false; });

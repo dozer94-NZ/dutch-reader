@@ -12,6 +12,8 @@ A small web app (installable on Android from Chrome) for the Dutch word list in 
 - **Flag issue** (button on each word while sorting): reports a wrong meaning, a swapped word, a typo or something else. Appended to `dutch/issues.csv` (`dutch,english,type,note,who,date`). The word list is not changed by the app.
 - **Ideas** tab: a box to pitch an idea for the app. Appended to `dutch/ideas.csv` (`date,who,idea`).
 
+- **Add a person** (Settings): type a first name and tap Create. The app makes `dutch/<name>.csv` with every word set to `unknown`, in the same order as the other progress files. The Who list is read from the `dutch/` folder (names `inbox`, `issues`, `ideas`, `people`, `readme`, `vocab` are reserved). Everyone with an access key can see and change everyone's data.
+
 Flags, ideas and typed words are sent straight away; if the phone is offline they stay on the phone and go out at the next save.
 
 No word list or personal data is stored in this repo, only the app. The data is fetched with a GitHub

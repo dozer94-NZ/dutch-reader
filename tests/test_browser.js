@@ -34,6 +34,8 @@ async function newPhone(browser) {
     if (u.startsWith('https://api.github.com/')) {
       if (m === 'OPTIONS') return req.respond({ status: 204, headers: CORS });
       const fp = decodeURIComponent(u.split('/contents/')[1].split('?')[0]), f = files[fp];
+      if (m === 'GET' && fp === 'dutch') return req.respond({ status: 200, headers: CORS, contentType: 'application/json',
+        body: JSON.stringify(Object.keys(files).filter(k => /^dutch\/[^/]+$/.test(k)).map(k => ({ name: k.slice(6), type: 'file' })).concat([{ name: 'vocab', type: 'dir' }])) });
       if (m === 'GET') {
         if (!f) return req.respond({ status: 404, headers: CORS, body: '{}' });
         if (/raw/.test(req.headers().accept || '')) return req.respond({ status: 200, headers: CORS, contentType: 'text/plain', body: f.text });
@@ -188,6 +190,36 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.waitForFunction(() => /Saved 1/.test(document.getElementById('saveMsg').textContent), { timeout: 10000 });
   ok(files['dutch/anna.csv'].text !== original.anna && diffLines(original.anna, files['dutch/anna.csv'].text).length === 1, 'one line changed in anna.csv');
   ok(puts[puts.length - 1].message.includes('(Anna)'), 'commit names Anna');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+
+  console.log('\n=== Add a person ===');
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  await page.click('#btnSettings');
+  await page.waitForFunction(() => document.querySelectorAll('#sWho option').length >= 2);
+  const opts = () => page.$$eval('#sWho option', o => o.map(x => x.textContent));
+  ok((await opts()).join() === 'Anna,Noah', 'Who list comes from the folder, without inbox/issues/ideas: ' + (await opts()).join());
+  const create = async name => { await page.$eval('#sNewName', e => e.value = ''); if (name) await page.type('#sNewName', name); await page.click('#sAddPerson'); await new Promise(r => setTimeout(r, 600)); return txt(page, '#sPersonMsg'); };
+  ok(/2 to 20 letters/.test(await create('x')), 'a too-short name is refused');
+  ok(/used for something else/.test(await create('Ideas')), 'a reserved name is refused');
+  ok(/already has a list/.test(await create('noah')), 'an existing person is not overwritten');
+  ok(files['dutch/noah.csv'].text.length > 0 && diffLines(original.noah, files['dutch/noah.csv'].text) !== null, 'noah.csv untouched by that');
+  const msg = await create('Sam');
+  ok(/Created Sam's list with 3,018 words/.test(msg), msg);
+  const sam = files['dutch/sam.csv'] && files['dutch/sam.csv'].text, sl = sam.split('\n');
+  ok(sl[0] === 'dutch,english,status,right,wrong,streak,last_practised,next_due,pronunciation' && sl.length === 3020 && sl[3019] === '', 'sam.csv: header + 3,018 rows + final newline');
+  const keyseq = t => t.split('\n').slice(1).filter(Boolean).map(l => { const f = M.parseCSV(l)[0]; return f[0] + '|' + f[1]; });
+  ok(keyseq(sam).join('\n') === keyseq(original.noah).join('\n'), 'rows are in exactly the same order as noah.csv (so diffs stay small)');
+  ok(sl.slice(1, -1).every(l => /,unknown,0,0,0,,,$/.test(l)), 'every row is unknown with zero counts');
+  ok(/progress file \(3018 words, all unknown\)/.test(puts[puts.length - 1].message), 'commit message: ' + puts[puts.length - 1].message);
+  ok((await opts()).join() === 'Anna,Noah,Sam' && await page.$eval('#sWho', e => e.value) === 'Sam', 'Sam is in the list and chosen');
+  await page.click('#sSave');
+  await page.waitForFunction(() => /Sam's progress/.test(document.getElementById('listStatus').textContent), { timeout: 10000 });
+  await page.keyboard.press('2'); await page.click('#btnSave');
+  await page.waitForFunction(() => /Saved 1/.test(document.getElementById('saveMsg').textContent), { timeout: 10000 });
+  ok(diffLines(sam, files['dutch/sam.csv'].text).length === 1, 'Sam rates a word: one line changes in sam.csv');
+  ok(!/github/i.test(await pageText(page)), 'still no "GitHub" on the page');
   ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await ctx.close();
 
