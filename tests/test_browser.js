@@ -67,21 +67,22 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await new Promise(r => srv.listen(8766, r));
   const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: 'new', args: ['--no-sandbox'] });
   const today = new Date().toLocaleDateString('sv-SE');
-  const vocab = M.csvRecords(files['dutch/vocab/dutch-vocab.csv'].text).map(r => ({ dutch: r.dutch, english: r.english, level: r.level || '' }));
+  const allRows = M.csvRecords(files['dutch/vocab/dutch-vocab.csv'].text), TOTAL = allRows.length;
+  const vocab = allRows.filter(r => !/^verb-/.test(r.type || '')).map(r => ({ dutch: r.dutch, english: r.english, level: r.level || '' })), NW = vocab.length;
   const prog = new Map(M.csvRecords(original.noah).map(r => [T.keyOf(r.dutch, r.english), r]));
   const expectQueue = T.buildQueue(vocab, prog, 'unrated', today);
 
   console.log('\n=== Noah rates 12 words; the phone saves in between ===');
   let { ctx, page, errors } = await newPhone(browser);
   await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
-  ok(/3,018 words, Noah/.test(await txt(page, '#listStatus')), 'list + Noah progress loaded: ' + await txt(page, '#listStatus'));
+  ok(new RegExp(NW.toLocaleString() + ' words, Noah').test(await txt(page, '#listStatus')), 'list + Noah progress loaded: ' + await txt(page, '#listStatus'));
   ok((await page.$eval('#card', e => !e.hidden)), 'a card is showing');
   ok(await txt(page, '#cWord') === expectQueue[0].dutch, 'first word is the first A1 unrated word: ' + expectQueue[0].dutch);
   ok(/not rated yet/.test(await txt(page, '#bNow')) && await txt(page, '#cEng') === '', 'English hidden until asked');
   await page.keyboard.press(' ');
   ok(await txt(page, '#cEng') === expectQueue[0].english, 'space reveals English');
 
-  const lines = original.noah.split('\n'), phoneLineIdx = 2900, phoneWord = M.parseCSV(lines[phoneLineIdx])[0];
+  const lines = original.noah.split('\n'), phoneLineIdx = Math.floor(original.noah.split('\n').length * 0.8), phoneWord = M.parseCSV(lines[phoneLineIdx])[0];
   phoneEdit = t => { const l = t.split('\n'), f = M.parseCSV(l[phoneLineIdx])[0]; f[3] = '9'; l[phoneLineIdx] = M.csvLine(f); return l.join('\n'); };
   conflictOnce = true;
   const pattern = [5, 4, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0], rated = [];
@@ -123,7 +124,8 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(files['dutch/noah.csv'].text.split('\n')[li] === lines[li], 'the undone word is back exactly as it was in the file');
   await page.select('#mode', '5');
   const cnt5 = await txt(page, '#sortMsg');
-  const want5 = rated.slice(0, 11).filter(r => r.n === 5).length;
+  const r11 = rated.slice(0, 11), base5 = vocab.filter(w => !r11.some(r => r.w === w) && T.levelOf(prog.get(T.keyOf(w.dutch, w.english)), today) === 5).length;
+  const want5 = base5 + r11.filter(r => r.n === 5).length;   // words already rated 5 before + the ones rated 5 in this test
   ok(new RegExp(want5 + ' left in this set').test(cnt5) || want5 === 0, 'Re-check "5 Never need to practise again" shows the words rated 5: ' + cnt5);
   await page.select('#mode', 'unrated');
 
@@ -206,13 +208,13 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(/already has a list/.test(await create('noah')), 'an existing person is not overwritten');
   ok(files['dutch/noah.csv'].text.length > 0 && diffLines(original.noah, files['dutch/noah.csv'].text) !== null, 'noah.csv untouched by that');
   const msg = await create('Sam');
-  ok(/Created Sam's list with 3,018 words/.test(msg), msg);
+  ok(msg.includes("Created Sam's list with " + TOTAL.toLocaleString() + ' words'), msg);
   const sam = files['dutch/sam.csv'] && files['dutch/sam.csv'].text, sl = sam.split('\n');
-  ok(sl[0] === 'dutch,english,status,right,wrong,streak,last_practised,next_due,pronunciation' && sl.length === 3020 && sl[3019] === '', 'sam.csv: header + 3,018 rows + final newline');
+  ok(sl[0] === 'dutch,english,status,right,wrong,streak,last_practised,next_due,pronunciation' && sl.length === TOTAL + 2 && sl[TOTAL + 1] === '', 'sam.csv: header + ' + TOTAL + ' rows (words and verb drills) + final newline');
   const keyseq = t => t.split('\n').slice(1).filter(Boolean).map(l => { const f = M.parseCSV(l)[0]; return f[0] + '|' + f[1]; });
   ok(keyseq(sam).join('\n') === keyseq(original.noah).join('\n'), 'rows are in exactly the same order as noah.csv (so diffs stay small)');
   ok(sl.slice(1, -1).every(l => /,unknown,0,0,0,,,$/.test(l)), 'every row is unknown with zero counts');
-  ok(/progress file \(3018 words, all unknown\)/.test(puts[puts.length - 1].message), 'commit message: ' + puts[puts.length - 1].message);
+  ok(new RegExp('progress file \\(' + TOTAL + ' words, all unknown\\)').test(puts[puts.length - 1].message), 'commit message: ' + puts[puts.length - 1].message);
   ok((await opts()).join() === 'Anna,Noah,Sam' && await page.$eval('#sWho', e => e.value) === 'Sam', 'Sam is in the list and chosen');
   await page.click('#sSave');
   await page.waitForFunction(() => /Sam's progress/.test(document.getElementById('listStatus').textContent), { timeout: 10000 });
@@ -355,11 +357,51 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   const lvl = (P, q) => { const l = T.levelOf(P.get(T.keyOf(q.d, q.e)), today); return l === null ? 0 : l; };
   ok(hq.every(q => lvl(nP, q) === 0 && lvl(aP, q) === 0), 'every handicap word is new to both players');
   const wordLevel = d => (wordsT.find(w => w.dutch === d) || {}).level;
-  ok(hq.every(q => wordLevel(q.d) === 'A1'), 'and easy (A1) words');
+  ok(hq.every(q => ['A1', 'A2'].includes(wordLevel(q.d))), 'and easy (A1/A2) words');
+  ok(hq.every(q => !/ \u2014 past:/.test(q.e)), 'no verb drill rows in battles');
   await page.click('#qDone');
   ok(/handicap/.test(await txt(page, '#battleLists')), 'listed as a handicap battle');
   ok(!/github/i.test(await pageText(page)), 'no "GitHub" anywhere');
   ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+
+  console.log('\n=== Verb drill is separate ===');
+  const drillRows = allRows.filter(r => /^verb-/.test(r.type || '')), drillKeys = new Set(drillRows.map(r => r.dutch + '\u0001' + r.english));
+  ok(drillRows.length > 30 && drillRows.every(r => G.parseDrill(r.english) && G.parseDrill(r.english).perfect !== undefined), 'every drill row reads as past + perfect: ' + drillRows.length + ' rows');
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  await page.click('#tabPlayBtn');
+  const noahBeforeD = files['dutch/noah.csv'].text;
+  await page.click('#btnDrill');
+  const dlog = [];
+  for (let i = 0; i < 10; i++) {
+    await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
+    const dutch = await txt(page, '#qWord'), prompt = await txt(page, '#qPrompt'), opts = await page.$$eval('#qOpts .opt span', e => e.map(x => x.textContent));
+    const form = /^Past/.test(prompt) ? 'past' : 'perfect', row = drillRows.find(r => r.dutch === dutch), right = G.parseDrill(row.english)[form];
+    const want = i < 6 ? 'right' : 'wrong', idx = opts.findIndex(o => want === 'right' ? o === right : o !== right);
+    dlog.push({ dutch, prompt, opts, right, form });
+    await page.click('#qOpts .opt:nth-child(' + (idx + 1) + ')'); await page.click('#qNext');
+  }
+  await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
+  ok(dlog.every(l => /^(Past tense|Perfect) of /.test(l.prompt) && l.opts.length === 4 && new Set(l.opts).size === 4 && l.opts.includes(l.right)), 'drill questions: prompt + four different forms, one right');
+  ok(dlog.every(l => l.opts.every(o => !/ \u2014 /.test(o))), 'options are just the forms, not the whole row');
+  ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.mode === 'drill')), 'drill score row sent');
+  const dsc = rowsOf('dutch/scores.csv').filter(r => r.mode === 'drill')[0];
+  ok(dsc.right === '6' && dsc.total === '10' && dsc.who === 'Noah', 'score row: ' + JSON.stringify(dsc));
+  ok(await until(async () => files['dutch/noah.csv'].text !== noahBeforeD), 'progress saved');
+  const changed = M.csvRecords(files['dutch/noah.csv'].text).filter((r, i) => r.last_practised === today && !M.csvRecords(noahBeforeD).some(o => o.dutch === r.dutch && o.english === r.english && o.last_practised === today && o.right === r.right && o.wrong === r.wrong));
+  ok(changed.length === 10 && changed.every(r => drillKeys.has(r.dutch + '\u0001' + r.english)), 'exactly 10 progress rows changed and all are verb drill rows');
+  ok(!/github/i.test(await pageText(page)), 'no "GitHub" on the page');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+  // quick rounds and sorting never show drill rows (checked on the page the first round left behind)
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  let seenDrill = false;
+  for (let t = 0; t < 3; t++) { await page.click('#tabPlayBtn'); await page.click('#btnRound'); const l = await play(page, () => 'right'); if (l.some(x => x.opts.some(o => / \u2014 /.test(o)))) seenDrill = true; await page.click('#qDone'); }
+  ok(!seenDrill, 'three quick rounds: no verb drill row among the options');
+  await page.click('#tabSortBtn'); await page.select('#mode', 'all');
+  ok(new RegExp('\\b' + NW.toLocaleString() + ' left in this set').test(await txt(page, '#sortMsg')), 'sorting "all words" offers exactly the ' + NW + ' words, no verb drill rows: ' + await txt(page, '#sortMsg'));
   await ctx.close();
 
   await browser.close(); srv.close();

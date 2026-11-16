@@ -87,13 +87,13 @@
         if (alt.indexOf(' ') < 0) { if (!known.has(alt)) known.set(alt, shown); }
         else singleTokens(alt).forEach(function (t) { if (t.length > 1 && !inPhrase.has(t)) inPhrase.set(t, shown); });
       });
-      if (r.type === 'verb-past' || r.type === 'verb-perfect') {
-        var m = /(?:past|perfect):\s*(.*)$/.exec(norm(r.english || ''));
-        if (m) m[1].split(/[,;]/).forEach(function (chunk) {
+      if (/^verb-/.test(r.type || '')) {
+        var parts = norm(r.english || '').split(/(?:past|perfect):/).slice(1);   // text after "past:" and after "perfect:"
+        parts.forEach(function (part) { part.split(/[,;]/).forEach(function (chunk) {
           singleTokens(chunk).forEach(function (t) {
             if (!PRONOUNS_AUX.has(t) && t.length > 1 && !forms.has(t)) forms.set(t, norm(r.dutch));
           });
-        });
+        }); });
       }
     });
     return { known: known, inPhrase: inPhrase, forms: forms, size: rows.length };

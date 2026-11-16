@@ -40,7 +40,7 @@
   var people = store.get('people', ['Noah', 'Anna']);  // everyone with a progress file
   var RESERVED = ['inbox', 'issues', 'ideas', 'people', 'readme', 'vocab', 'scores', 'battles'];
   var PROG_HEADER = 'dutch,english,status,right,wrong,streak,last_practised,next_due,pronunciation';
-  var words = [], progress = new Map(), index = M.buildIndex([]);
+  var words = [], drills = [], progress = new Map(), index = M.buildIndex([]);
   var session = { queue: [], pos: 0, done: 0, undo: [] };
   var saving = false, looked = false;
 
@@ -111,9 +111,11 @@
              last_practised: '', next_due: '', pronunciation: '' };
   }
   function rebuild() {
-    words = vocabCsv ? M.csvRecords(vocabCsv).filter(function (r) { return r.dutch && r.english; }).map(function (r) {
+    var all = vocabCsv ? M.csvRecords(vocabCsv).filter(function (r) { return r.dutch && r.english; }).map(function (r) {
       return { dutch: r.dutch, english: r.english, level: r.level || '', type: r.type || 'word' };
     }) : [];
+    words = all.filter(function (w) { return !/^verb-/.test(w.type); });      // sorting, quick rounds, battles
+    drills = all.filter(function (w) { return /^verb-/.test(w.type); });      // the Verb drill only
     progress = new Map();
     if (progText) M.csvRecords(progText).forEach(function (r) { progress.set(T.keyOf(r.dutch, r.english), r); });
     pendingList().forEach(function (e) {       // ratings not saved yet still count on screen
@@ -496,6 +498,12 @@
     }
     startRound({ kind: 'practice', flat: false, qs: G.makeQuestions(chosen, words, seed), wotwKey: wotwKey });
   }
+  function startDrill() {
+    var msg = $('drillMsg'); msg.textContent = '';
+    if (!drills.length) { msg.textContent = 'No verb drills in the wordlist yet.'; return; }
+    var seed = 'd' + Date.now() + Math.random(), chosen = G.pickPractice(drills, progress, today(), seed, G.ROUND);
+    startRound({ kind: 'drill', flat: false, qs: G.makeDrillQuestions(chosen, drills, seed), wotwKey: null });
+  }
   async function startBattle() {
     var opp = $('bOpp').value, mode = $('bMode').value, msg = $('battleMsg');
     msg.className = 'muted';
@@ -527,8 +535,9 @@
   function renderQuestion() {
     var q = round.qs[round.pos]; round.locked = false; round.t0 = Date.now();
     $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points' +
-      (round.kind === 'practice' ? '' : ' · battle vs ' + round.opp);
+      (round.opp ? ' · battle vs ' + round.opp : '');
     $('qWord').textContent = q.d;
+    $('qPrompt').hidden = !q.p; $('qPrompt').textContent = q.p || '';
     $('qStar').hidden = !(round.wotwKey && round.wotwKey === T.keyOf(q.d, q.e));
     var box = $('qOpts'); box.textContent = '';
     q.o.forEach(function (o, i) {
@@ -539,7 +548,7 @@
   function answer(i) {
     if (!round || round.locked) return;
     round.locked = true;
-    var q = round.qs[round.pos], k = T.keyOf(q.d, q.e), ok = q.o[i] === q.e, ms = Date.now() - round.t0, t0 = today();
+    var q = round.qs[round.pos], k = T.keyOf(q.d, q.e), good = q.a || q.e, ok = q.o[i] === good, ms = Date.now() - round.t0, t0 = today();
     var lv = T.levelOf(progress.get(k), t0), pts = ok ? G.questionPoints(lv, ms, round.flat) : 0;
     round.answers.push({ ok: ok, pts: pts, key: k }); round.pts += pts;
     var row = progress.get(k) || blankRow({ dutch: q.d, english: q.e }), fields = G.applyAnswer(row, ok, t0);
@@ -547,11 +556,11 @@
     Object.assign(row, fields); progress.set(k, row);
     Array.prototype.forEach.call($('qOpts').children, function (b, n) {
       b.disabled = true;
-      if (q.o[n] === q.e) b.className = 'opt right'; else if (n === i) b.className = 'opt wrong';
+      if (q.o[n] === good) b.className = 'opt right'; else if (n === i) b.className = 'opt wrong';
     });
     $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points' +
-      (round.kind === 'practice' ? '' : ' · battle vs ' + round.opp);
-    $('qFeedback').textContent = ok ? 'Right! +' + pts : 'Not quite. ' + q.d + ' = ' + q.e;
+      (round.opp ? ' · battle vs ' + round.opp : '');
+    $('qFeedback').textContent = ok ? 'Right! +' + pts : 'Not quite. ' + (q.a ? q.a : q.d + ' = ' + q.e);
     $('qFeedback').className = ok ? 'ok' : 'err';
     $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
     updateCounts();
@@ -564,12 +573,12 @@
   }
   function quitRound() { round = null; showPlay('home'); $('roundMsg').textContent = 'Round stopped, no points. (Answers you gave still updated your word list.)'; if (pendingList().length && token) save(); }
   function finishRound() {
-    var t0 = today(), dates = myDates(), flat = round.kind !== 'practice', newDay = dates.indexOf(t0) < 0;
+    var t0 = today(), dates = myDates(), flat = !!round.flat, newDay = dates.indexOf(t0) < 0;
     var streak = G.streakDays(dates.concat([t0]), t0);
     var wotwHit = !!round.wotwKey && round.answers.some(function (a) { return a.key === round.wotwKey && a.ok; });
     var res = G.scoreRound(round.answers, { flat: flat, wotwHit: wotwHit, newDay: newDay, streak: streak });
     var rid = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.mode === 'handicap' ? 'handicap' : 'battle'),
+    scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.kind === 'drill' ? 'drill' : (round.mode === 'handicap' ? 'handicap' : 'battle')),
                       points: String(res.points), right: String(res.right), total: String(res.total), wotw: wotwHit ? '1' : '' });
     store.set('scoreQ', scoreQueue);
     var lines = ['You got ' + res.right + ' of ' + res.total + ' right and scored ' + res.points + ' points.'], p = res.parts;
@@ -627,7 +636,7 @@
         msg.textContent = name + ' already has a list. Chosen above; tap Save to switch to it.'; return;
       }
       var seen = new Set(), rows = [];
-      words.forEach(function (w) { var k = T.keyOf(w.dutch, w.english); if (!seen.has(k)) { seen.add(k); rows.push(w); } });
+      words.concat(drills).forEach(function (w) { var k = T.keyOf(w.dutch, w.english); if (!seen.has(k)) { seen.add(k); rows.push(w); } });
       rows.sort(function (a, b) {
         var x = a.dutch.toLowerCase(), y = b.dutch.toLowerCase();
         if (x !== y) return x < y ? -1 : 1;
@@ -674,6 +683,7 @@
   $('tabIdeasBtn').addEventListener('click', function () { tab('ideas'); });
   $('btnFlag').addEventListener('click', function () { openFlag(); });
   $('btnRound').addEventListener('click', startPractice);
+  $('btnDrill').addEventListener('click', startDrill);
   $('btnChallenge').addEventListener('click', startBattle);
   $('qNext').addEventListener('click', nextQuestion);
   $('qQuit').addEventListener('click', quitRound);

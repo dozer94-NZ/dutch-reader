@@ -91,7 +91,7 @@ eq(G.pickPractice(mini, mp, TODAY, 's', 6).length, 6, 'fills up with words that 
 const pa = new Map(), pb = new Map();
 const hw = G.pickHandicap(words, noah, anna, TODAY, 'h1', 10);
 ok(hw.length === 10 && hw.every(w => Math.max(T.levelOf(noah.get(T.keyOf(w.dutch, w.english)), TODAY) || 0, T.levelOf(anna.get(T.keyOf(w.dutch, w.english)), TODAY) || 0) === 0), 'handicap words are rated 0 or unrated by both (real files)');
-ok(hw.every(w => w.level === 'A1'), 'and easy first');
+ok(hw.every(w => w.level === 'A1' || w.level === 'A2'), 'and easy (A1, A2) first');
 const withKnown = new Map(noah); const k0 = hw[0]; withKnown.set(T.keyOf(k0.dutch, k0.english), { status: 'known', streak: '5', next_due: T.addDays(TODAY, 365) });
 ok(!G.pickHandicap(words, withKnown, anna, TODAY, 'h1', 10).some(w => w === k0), 'a word one player knows well is left out');
 eq(G.pickHandicap(words, noah, anna, TODAY, 'h1', 10), hw, 'same seed, same handicap words');

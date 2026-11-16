@@ -89,6 +89,26 @@
     });
   }
 
+  // ---- verb drills: "to eat — past: ik at, we aten; perfect: ik heb gegeten" ----
+  function parseDrill(english) {
+    var m = String(english).match(/^(.*?)\s+\u2014\s+past:\s*([^;]+?)\s*(?:;\s*perfect:\s*(.+?))?\s*$/);
+    if (!m) return null;
+    return { base: m[1], past: m[2], perfect: m[3] || '' };
+  }
+  // Question: Dutch infinitive, pick the right past (ik ..., we ...) or perfect (ik heb/ben ...) from four.
+  function makeDrillQuestions(chosen, pool, seed) {
+    var parsed = pool.map(function (p) { return { w: p, d: parseDrill(p.english) }; }).filter(function (x) { return x.d; });
+    var out = [];
+    chosen.forEach(function (w) {
+      var d = parseDrill(w.english); if (!d) return;
+      var r = rng(seed + '|' + T.keyOf(w.dutch, w.english)), form = (d.perfect && r() < 0.5) ? 'perfect' : 'past', right = d[form];
+      var others = shuffle(parsed.filter(function (x) { return x.w !== w && x.d[form] && x.d[form] !== right; }), r), seen = new Set([right]), pick = [];
+      others.forEach(function (x) { if (pick.length < 3 && !seen.has(x.d[form])) { seen.add(x.d[form]); pick.push(x.d[form]); } });
+      out.push({ d: w.dutch, e: w.english, a: right, p: (form === 'past' ? 'Past tense' : 'Perfect') + ' of ' + w.dutch + ' (' + d.base + ')?', o: shuffle([right].concat(pick), r) });
+    });
+    return out;
+  }
+
   // ---- which words to ask ----
   function priority(w, row, today) {
     var st = (row && row.status) || 'unknown', due = (row && row.next_due) || '';
@@ -161,7 +181,7 @@
   }
 
   return { ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
-           weekStart: weekStart, speedBonus: speedBonus, questionPoints: questionPoints, streakDays: streakDays, scoreRound: scoreRound,
+           weekStart: weekStart, parseDrill: parseDrill, makeDrillQuestions: makeDrillQuestions, speedBonus: speedBonus, questionPoints: questionPoints, streakDays: streakDays, scoreRound: scoreRound,
            applyAnswer: applyAnswer, makeQuestions: makeQuestions, pickPractice: pickPractice, pickNormal: pickNormal,
            pickHandicap: pickHandicap, wordOfWeek: wordOfWeek, leaderboard: leaderboard, battleStates: battleStates, battleWins: battleWins };
 });
