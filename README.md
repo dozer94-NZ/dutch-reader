@@ -3,7 +3,7 @@
 A small web app (installable on Android from Chrome) for the Dutch word list in the private
 `learning-progress` repo.
 
-- **Sort words**: one word at a time, tap how well you know it, 0 to 5 (LingQ levels). Your rating is
+- **Sort words**: one word at a time, tap how well you know it, 0 to 5 (six levels). Your rating is
   saved into your own progress file (`dutch/noah.csv` or `dutch/anna.csv`), changing only the lines of
   the words you rated.
 - **Add a word**: type a Dutch word and its meaning (or ask Wiktionary for a suggestion). "Send" appends it
@@ -16,10 +16,10 @@ token that you paste into the app on your phone (Settings).
 ## The levels and how they are saved
 Saved with the statuses the Cobra phone already understands, so Imke reacts straight away.
 
-| Tap | LingQ name | `status` | `streak` | `next_due` |
+| Tap | Name | `status` | `streak` | `next_due` |
 |---|---|---|---|---|
 | 0 | New | `unknown` | 0 | rating date (marks "rated 0") |
-| 1 | New LingQ | `needs_practice` | 0 | today |
+| 1 | Just met | `needs_practice` | 0 | today |
 | 2 | Recognized | `learning` | 1 | +2 days |
 | 3 | Familiar | `learning` | 2 | +7 days |
 | 4 | Learned | `known` | 3 | +60 days |

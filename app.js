@@ -1,5 +1,5 @@
 /* app.js: the screens.
-   Sort words: one word at a time, tap 0-5 (LingQ levels). Ratings are saved into the person's own progress
+   Sort words: one word at a time, tap 0-5 (six levels). Ratings are saved into the person's own progress
    file (dutch/<person>.csv), changing only the lines of the rated words.
    Add a word: type a word + meaning; "Send" appends it to dutch/inbox.csv (a later tool merges it into the list). */
 (function () {

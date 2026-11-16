@@ -1,4 +1,4 @@
-/* triage.js: the rules for self-rating words 0 to 5 (LingQ levels) and for saving that rating into
+/* triage.js: the rules for self-rating words 0 to 5 (six levels) and for saving that rating into
    a progress file (dutch/<person>.csv) without touching any other line. No screen, no network. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./matcher.js'));
@@ -8,7 +8,7 @@
 
   var LEVELS = [
     { n: 0, name: 'New', short: 'New' },
-    { n: 1, name: 'New LingQ', short: 'New LingQ' },
+    { n: 1, name: 'Just met', short: 'Just met' },
     { n: 2, name: 'Recognized', short: 'Recognized' },
     { n: 3, name: 'Familiar', short: 'Familiar' },
     { n: 4, name: 'Learned', short: 'Learned' },
