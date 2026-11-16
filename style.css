@@ -53,3 +53,20 @@ label.check input { width: auto; margin: 0; }
 .chip.lv { background: #e3edff; color: #234; }
 .chip.flag { background: #ffe3e0; color: #b3261e; }
 .row .btn + .btn { margin-left: 0; }
+
+/* v3: play, board, battles */
+.tab { padding: 12px 4px; font-size: 14px; }
+.word.small { font-size: 26px; margin: 6px 0; }
+.opts { display: grid; gap: 8px; margin: 10px 0; }
+.opt { display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font: inherit; cursor: pointer; }
+.opt b { background: #eee9e2; border-radius: 6px; padding: 0 8px; font-size: 14px; }
+.opt span { flex: 1; word-break: break-word; }
+.opt.right { background: #d9f2e0; border-color: var(--ok); color: #000; }
+.opt.wrong { background: #ffe3e0; border-color: #b3261e; color: #000; }
+.opt:disabled { opacity: 1; }
+.fb { min-height: 24px; margin: 4px 0; font-weight: 600; }
+.fb.ok { color: var(--ok); }
+.brow { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+h3 { font-size: 15px; margin: 12px 0 4px; }
+.rank { width: 28px; text-align: center; }
+.list li b { white-space: nowrap; }

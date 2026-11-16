@@ -10,6 +10,8 @@
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
+  var SCORES = { path: 'dutch/scores.csv', header: 'id,date,who,mode,points,right,total,wotw' };
+  var BATTLES = { path: 'dutch/battles.csv', header: 'id,type,date,who,opponent,mode,score,right,total,questions' };
   var AUTOSAVE_EVERY = 10;
   var $ = function (id) { return document.getElementById(id); };
 
@@ -31,9 +33,12 @@
   var inboxQueue = store.get('queue', []);           // typed words not yet sent
   var issueQueue = store.get('issues', []);          // flags not yet sent
   var ideaQueue = store.get('ideas', []);            // ideas not yet sent
+  var scoresCsv = store.get('scoresCsv', ''), battlesCsv = store.get('battlesCsv', '');
+  var scoreQueue = store.get('scoreQ', []), battleQueue = store.get('battleQ', []);   // game results not yet sent
+  var flagTarget = null;
   var flagged = new Set(store.get('flagged', []));   // words this phone has flagged
   var people = store.get('people', ['Noah', 'Anna']);  // everyone with a progress file
-  var RESERVED = ['inbox', 'issues', 'ideas', 'people', 'readme', 'vocab'];
+  var RESERVED = ['inbox', 'issues', 'ideas', 'people', 'readme', 'vocab', 'scores', 'battles'];
   var PROG_HEADER = 'dutch,english,status,right,wrong,streak,last_practised,next_due,pronunciation';
   var words = [], progress = new Map(), index = M.buildIndex([]);
   var session = { queue: [], pos: 0, done: 0, undo: [] };
@@ -100,7 +105,7 @@
 
   // ---------- loading ----------
   function pendingList() { return Object.keys(pending).map(function (k) { return pending[k]; }); }
-  function fieldsOfEntry(e) { return e.kind === 'restore' ? e.fields : T.fieldsFor(e.level, e.date); }
+  function fieldsOfEntry(e) { return (e.kind === 'restore' || e.kind === 'answer') ? e.fields : T.fieldsFor(e.level, e.date); }
   function blankRow(w) {
     return { dutch: w.dutch, english: w.english, status: 'unknown', right: '0', wrong: '0', streak: '0',
              last_practised: '', next_due: '', pronunciation: '' };
@@ -148,6 +153,7 @@
     startSession();
     renderQueue();
     flushExtras();
+    loadGame();
     if (token && !bad) loadPeople();
   }
 
@@ -241,7 +247,7 @@
         if (!cur) throw new Error(progPath() + ' not found');
         var res = T.patchProgress(cur.text, changes);
         if (res.text === cur.text) { forget(cur.text); saving = false; updateCounts(); $('saveMsg').textContent = 'Already saved.'; return; }
-        var r = await ghPut(progPath(), 'Self-assessed ' + res.changed + ' word(s) in Dutch words app (' + who + ')', res.text, cur.sha);
+        var r = await ghPut(progPath(), (Object.keys(snap).some(function (k) { return snap[k].kind === 'answer'; }) ? 'Practised ' : 'Self-assessed ') + res.changed + ' word(s) in Dutch words app (' + who + ')', res.text, cur.sha);
         if (r.ok) {
           forget(res.text); saving = false; updateCounts(); flushExtras();
           $('saveMsg').textContent = 'Saved ' + res.changed + (res.changed === 1 ? ' word' : ' words') + ' in the wordlist.';
@@ -339,7 +345,7 @@
   // ---------- flags and ideas (sent straight away; kept on the phone if that fails) ----------
   var flushing = false;
   async function flushExtras() {
-    if (flushing || !token || (!issueQueue.length && !ideaQueue.length)) return;
+    if (flushing || !token || (!issueQueue.length && !ideaQueue.length && !scoreQueue.length && !battleQueue.length)) return;
     flushing = true;
     try {
       if (issueQueue.length) {
@@ -355,18 +361,30 @@
         ideaQueue = []; store.set('ideas', ideaQueue);
         $('ideaMsg').textContent = 'Sent. Thank you!';
       }
+      if (scoreQueue.length) {
+        var srows = scoreQueue.map(function (q) { return [q.id, q.date, q.who, q.mode, q.points, q.right, q.total, q.wotw]; });
+        var sr = await appendRows(SCORES.path, SCORES.header, srows, function (n) { return 'Score from ' + who + ' (Dutch words app)'; }, function (f) { return f[0]; });
+        scoreQueue = []; store.set('scoreQ', scoreQueue); scoresCsv = sr.text; store.set('scoresCsv', scoresCsv);
+      }
+      if (battleQueue.length) {
+        var brows = battleQueue.map(function (q) { return [q.id, q.type, q.date, q.who, q.opponent, q.mode, q.score, q.right, q.total, q.questions]; });
+        var br = await appendRows(BATTLES.path, BATTLES.header, brows, function (n) { return 'Battle ' + battleQueue[0].type + ' from ' + who + ' (Dutch words app)'; }, function (f) { return f[0] + '|' + f[1] + '|' + f[3]; });
+        battleQueue = []; store.set('battleQ', battleQueue); battlesCsv = br.text; store.set('battlesCsv', battlesCsv);
+      }
+      renderGame();
     } catch (e) { /* stays on the phone, tried again at the next save */ }
     flushing = false; updateCounts();
   }
-  function openFlag() {
-    var w = session.queue[session.pos]; if (!w) return;
+  function openFlag(w) {
+    w = w || session.queue[session.pos]; if (!w) return;
+    flagTarget = w;
     $('flagWord').textContent = w.dutch + ' = ' + w.english;
     $('flagNote').value = ''; $('flagType').selectedIndex = 0;
     $('flagDlg').showModal();
   }
   function onFlagSubmit(ev) {
     if (!(ev.submitter && ev.submitter.value === 'flag')) return;
-    var w = session.queue[session.pos]; if (!w) return;
+    var w = flagTarget; if (!w) return;
     issueQueue.push({ dutch: w.dutch, english: w.english, type: $('flagType').value, note: $('flagNote').value.trim(), who: who, date: today() });
     store.set('issues', issueQueue);
     flagged.add(T.keyOf(w.dutch, w.english)); store.set('flagged', Array.from(flagged));
@@ -379,6 +397,201 @@
     $('ideaText').value = ''; msg.className = 'muted grow';
     msg.textContent = token ? 'Sending…' : 'Saved on this phone. Add the access key in Settings to send it.';
     flushExtras().then(function () { if (ideaQueue.length && token) msg.textContent = "Couldn't send it yet. It is saved on this phone and goes out next time."; });
+  }
+
+  // ---------- games: quick round, battles, leaderboard ----------
+  var G = window.Game;
+  var round = null;
+  function modeName(m) { return m === 'handicap' ? 'handicap' : 'normal'; }
+  function scoreRows() {
+    var by = new Map();
+    (scoresCsv ? M.csvRecords(scoresCsv) : []).concat(scoreQueue).forEach(function (r) { by.set(r.id, r); });
+    return Array.from(by.values());
+  }
+  function battleRows() {
+    var by = new Map();
+    (battlesCsv ? M.csvRecords(battlesCsv) : []).concat(battleQueue).forEach(function (r) { by.set(r.id + '|' + r.type + '|' + r.who, r); });
+    return Array.from(by.values());
+  }
+  function myDates() { return scoreRows().filter(function (r) { return r.who === who; }).map(function (r) { return r.date; }); }
+  function wotwDone(wk) { return scoreRows().some(function (r) { return r.who === who && r.wotw === '1' && G.weekStart(r.date) === wk; }); }
+  async function loadGame() {
+    if (token) {
+      try {
+        var s = await ghGetRaw(SCORES.path), b = await ghGetRaw(BATTLES.path);
+        scoresCsv = s || ''; battlesCsv = b || '';
+        store.set('scoresCsv', scoresCsv); store.set('battlesCsv', battlesCsv);
+      } catch (e) { /* keep the copies saved on this phone */ }
+    }
+    renderGame();
+  }
+  function renderGame() { renderPlayHome(); renderBoard(); renderBattles(); }
+
+  function renderPlayHome() {
+    var t0 = today(), wk = G.weekStart(t0), w = words.length ? G.wordOfWeek(words, wk) : null, box = $('wotwBox');
+    box.textContent = '';
+    if (!w) box.appendChild(h('p', { class: 'muted', text: 'Load the wordlist first.' }));
+    else {
+      box.appendChild(h('div', { class: 'word small', text: w.dutch }));
+      box.appendChild(h('p', { class: 'muted', text: wotwDone(wk) ? 'Done this week ✓ (+' + G.WOTW_BONUS + ' points earned)'
+        : 'Get it right in a quick round this week for +' + G.WOTW_BONUS + ' points. It is the first question of your next round.' }));
+    }
+    var streak = G.streakDays(myDates(), t0), mine = G.leaderboard(scoreRows().filter(function (r) { return r.who === who; }), wk)[0];
+    $('streakMsg').textContent = 'Daily streak: ' + streak + (streak === 1 ? ' day' : ' days') + ' · This week: ' + (mine ? mine.points : 0) + ' points';
+    var sel = $('bOpp'), keep = sel.value; sel.textContent = '';
+    people.filter(function (n) { return n !== who; }).forEach(function (n) { var o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
+    if (keep) sel.value = keep;
+    $('btnChallenge').disabled = !sel.options.length;
+  }
+  function renderBattles() {
+    var states = G.battleStates(battleRows()), box = $('battleLists'); box.textContent = '';
+    var todo = states.filter(function (s) { return !s.done && s.b === who; }),
+        wait = states.filter(function (s) { return !s.done && s.a === who; }),
+        done = states.filter(function (s) { return s.done && (s.a === who || s.b === who); }).slice(-8).reverse();
+    function row(text, btn) { return h('div', { class: 'brow' }, h('span', { class: 'grow', text: text }), btn); }
+    if (todo.length) box.appendChild(h('h3', { text: 'Waiting for you' }));
+    todo.forEach(function (s) {
+      box.appendChild(row(s.a + ' challenged you (' + modeName(s.mode) + ', ' + s.date + ')',
+        h('button', { class: 'btn small primary', type: 'button', text: 'Play', onclick: function () { playReply(s); } })));
+    });
+    if (wait.length) box.appendChild(h('h3', { text: 'Waiting for them' }));
+    wait.forEach(function (s) { box.appendChild(row('You vs ' + s.b + ': you scored ' + s.aScore + ' (' + modeName(s.mode) + ', ' + s.date + ')')); });
+    if (done.length) box.appendChild(h('h3', { text: 'Finished' }));
+    done.forEach(function (s) {
+      box.appendChild(row(s.a + ' ' + s.aScore + ' – ' + s.bScore + ' ' + s.b + ' · ' + (s.winner === 'draw' ? 'draw' : s.winner + ' won') + ' (' + modeName(s.mode) + ', ' + s.date + ')'));
+    });
+    if (!states.length) box.appendChild(h('p', { class: 'muted', text: 'No battles yet. Challenge someone above.' }));
+  }
+  function renderBoard() {
+    var rows = scoreRows(), wk = G.weekStart(today()), lb = G.leaderboard(rows, wk), ul = $('boardList'); ul.textContent = '';
+    $('boardWeek').textContent = 'Week of ' + wk + ' (Monday to Sunday)';
+    lb.forEach(function (o, i) {
+      ul.appendChild(h('li', {}, h('span', { class: 'rank', text: ['🥇', '🥈', '🥉'][i] || String(i + 1) }),
+        h('span', { class: 'w', text: o.who + (o.who === who ? ' (you)' : '') }),
+        h('span', { class: 'n', text: o.rounds + (o.rounds === 1 ? ' round' : ' rounds') + ' · ' + o.right + '/' + o.total + ' right' }),
+        h('b', { text: o.points + ' pts' })));
+    });
+    if (!lb.length) ul.appendChild(h('li', {}, h('span', { class: 'n', text: 'Nobody has played this week yet. Be the first!' })));
+    var last = G.leaderboard(rows, T.addDays(wk, -7));
+    $('boardLast').textContent = last.length ? 'Last week: ' + last[0].who + ' won with ' + last[0].points + ' points.' : 'Last week: no rounds played.';
+    var all = G.leaderboard(rows);
+    $('boardAll').textContent = all.length ? 'All time: ' + all.map(function (o) { return o.who + ' ' + o.points; }).join(' · ') : '';
+    var wins = G.battleWins(G.battleStates(battleRows())), wn = Object.keys(wins).sort(function (a, b) { return wins[b] - wins[a]; });
+    $('boardWins').textContent = wn.length ? 'Battle wins: ' + wn.map(function (n) { return n + ' ' + wins[n]; }).join(' · ') : 'No battles finished yet.';
+  }
+
+  function showPlay(view) { $('playHome').hidden = view !== 'home'; $('quiz').hidden = view !== 'quiz'; $('quizEnd').hidden = view !== 'end'; }
+  function startRound(r) {
+    round = Object.assign({ pos: 0, answers: [], pts: 0, locked: false }, r);
+    showPlay('quiz'); renderQuestion();
+  }
+  function startPractice() {
+    if (!words.length) { $('roundMsg').textContent = 'Load the wordlist first (Settings).'; return; }
+    $('roundMsg').textContent = '';
+    var t0 = today(), wk = G.weekStart(t0), seed = 'p' + Date.now() + Math.random();
+    var chosen = G.pickPractice(words, progress, t0, seed, G.ROUND), wotw = wotwDone(wk) ? null : G.wordOfWeek(words, wk), wotwKey = null;
+    if (wotw) {
+      wotwKey = T.keyOf(wotw.dutch, wotw.english);
+      chosen = [wotw].concat(chosen.filter(function (w) { return T.keyOf(w.dutch, w.english) !== wotwKey; })).slice(0, G.ROUND);
+    }
+    startRound({ kind: 'practice', flat: false, qs: G.makeQuestions(chosen, words, seed), wotwKey: wotwKey });
+  }
+  async function startBattle() {
+    var opp = $('bOpp').value, mode = $('bMode').value, msg = $('battleMsg');
+    msg.className = 'muted';
+    if (!opp) { msg.textContent = 'Add a person in Settings first.'; return; }
+    if (!token) { msg.className = 'err'; msg.textContent = 'Add your access key in Settings first.'; return; }
+    if (!words.length) { msg.className = 'err'; msg.textContent = 'Load the wordlist first.'; return; }
+    var seed = 'b' + Date.now() + Math.random(), chosen;
+    $('btnChallenge').disabled = true;
+    try {
+      if (mode === 'handicap') {
+        msg.textContent = 'Reading ' + opp + "'s list…";
+        var txt = await ghGetRaw('dutch/' + opp.toLowerCase() + '.csv');
+        if (txt === null) throw new Error(opp + ' has no list yet');
+        var oppProg = new Map(); M.csvRecords(txt).forEach(function (r) { oppProg.set(T.keyOf(r.dutch, r.english), r); });
+        chosen = G.pickHandicap(words, progress, oppProg, today(), seed, G.ROUND);
+      } else chosen = G.pickNormal(words, seed, G.ROUND);
+      msg.textContent = '';
+      startRound({ kind: 'challenge', flat: true, mode: mode, opp: opp, id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                   qs: G.makeQuestions(chosen, words, seed) });
+    } catch (e) { msg.className = 'err'; msg.textContent = "Couldn't start the battle (" + e.message + ').'; }
+    $('btnChallenge').disabled = false;
+  }
+  function playReply(s) {
+    var qs; try { qs = JSON.parse(s.questions); } catch (e) { qs = null; }
+    if (!qs || !qs.length) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'That challenge has no questions. Ask ' + s.a + ' to send it again.'; return; }
+    startRound({ kind: 'reply', flat: true, mode: s.mode, opp: s.a, id: s.id, qs: qs });
+  }
+
+  function renderQuestion() {
+    var q = round.qs[round.pos]; round.locked = false; round.t0 = Date.now();
+    $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points' +
+      (round.kind === 'practice' ? '' : ' · battle vs ' + round.opp);
+    $('qWord').textContent = q.d;
+    $('qStar').hidden = !(round.wotwKey && round.wotwKey === T.keyOf(q.d, q.e));
+    var box = $('qOpts'); box.textContent = '';
+    q.o.forEach(function (o, i) {
+      box.appendChild(h('button', { type: 'button', class: 'opt', onclick: function () { answer(i); } }, h('b', { text: String(i + 1) }), h('span', { text: o })));
+    });
+    $('qFeedback').textContent = ''; $('qNext').hidden = true; $('qFlag').hidden = true;
+  }
+  function answer(i) {
+    if (!round || round.locked) return;
+    round.locked = true;
+    var q = round.qs[round.pos], k = T.keyOf(q.d, q.e), ok = q.o[i] === q.e, ms = Date.now() - round.t0, t0 = today();
+    var lv = T.levelOf(progress.get(k), t0), pts = ok ? G.questionPoints(lv, ms, round.flat) : 0;
+    round.answers.push({ ok: ok, pts: pts, key: k }); round.pts += pts;
+    var row = progress.get(k) || blankRow({ dutch: q.d, english: q.e }), fields = G.applyAnswer(row, ok, t0);
+    pending[k] = { dutch: q.d, english: q.e, kind: 'answer', fields: fields }; store.set('pending.' + who, pending);
+    Object.assign(row, fields); progress.set(k, row);
+    Array.prototype.forEach.call($('qOpts').children, function (b, n) {
+      b.disabled = true;
+      if (q.o[n] === q.e) b.className = 'opt right'; else if (n === i) b.className = 'opt wrong';
+    });
+    $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points' +
+      (round.kind === 'practice' ? '' : ' · battle vs ' + round.opp);
+    $('qFeedback').textContent = ok ? 'Right! +' + pts : 'Not quite. ' + q.d + ' = ' + q.e;
+    $('qFeedback').className = ok ? 'ok' : 'err';
+    $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
+    updateCounts();
+  }
+  function nextQuestion() {
+    if (!round || !round.locked) return;
+    round.locked = false;
+    round.pos++;
+    if (round.pos >= round.qs.length) finishRound(); else renderQuestion();
+  }
+  function quitRound() { round = null; showPlay('home'); $('roundMsg').textContent = 'Round stopped, no points. (Answers you gave still updated your word list.)'; if (pendingList().length && token) save(); }
+  function finishRound() {
+    var t0 = today(), dates = myDates(), flat = round.kind !== 'practice', newDay = dates.indexOf(t0) < 0;
+    var streak = G.streakDays(dates.concat([t0]), t0);
+    var wotwHit = !!round.wotwKey && round.answers.some(function (a) { return a.key === round.wotwKey && a.ok; });
+    var res = G.scoreRound(round.answers, { flat: flat, wotwHit: wotwHit, newDay: newDay, streak: streak });
+    var rid = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.mode === 'handicap' ? 'handicap' : 'battle'),
+                      points: String(res.points), right: String(res.right), total: String(res.total), wotw: wotwHit ? '1' : '' });
+    store.set('scoreQ', scoreQueue);
+    var lines = ['You got ' + res.right + ' of ' + res.total + ' right and scored ' + res.points + ' points.'], p = res.parts;
+    if (!flat) {
+      if (p.perfect) lines.push('Perfect round: +' + p.perfect);
+      if (p.wotw) lines.push('Word of the week: +' + p.wotw);
+      if (p.streak) lines.push('Daily streak of ' + streak + (streak === 1 ? ' day' : ' days') + ': +' + p.streak);
+    }
+    if (flat) {
+      battleQueue.push({ id: round.id, type: round.kind === 'challenge' ? 'challenge' : 'reply', date: t0, who: who, opponent: round.opp, mode: round.mode || 'normal',
+                         score: String(res.points), right: String(res.right), total: String(res.total), questions: round.kind === 'challenge' ? JSON.stringify(round.qs) : '' });
+      store.set('battleQ', battleQueue);
+      if (round.kind === 'challenge') lines.push('Challenge sent to ' + round.opp + '. They will see it the next time they open the app.');
+      else {
+        var s = G.battleStates(battleRows()).filter(function (b) { return b.id === round.id; })[0];
+        if (s && s.done) lines.push(s.winner === 'draw' ? 'It is a draw with ' + round.opp + '!' : (s.winner === who ? 'You beat ' + round.opp + '! ' : round.opp + ' won this one. ') + s.aScore + ' – ' + s.bScore);
+      }
+    }
+    $('qSummary').textContent = ''; lines.forEach(function (l) { $('qSummary').appendChild(h('p', { text: l })); });
+    round = null; showPlay('end');
+    if (token) save();
+    flushExtras(); renderGame();
   }
 
   // ---------- people ----------
@@ -432,7 +645,8 @@
 
   // ---------- tabs, settings, start ----------
   function tab(which) {
-    ['sort', 'add', 'ideas'].forEach(function (t) {
+    if (which === 'play' || which === 'board') loadGame();
+    ['sort', 'play', 'board', 'add', 'ideas'].forEach(function (t) {
       var cap = t.charAt(0).toUpperCase() + t.slice(1);
       $('tab' + cap).hidden = which !== t; $('tab' + cap + 'Btn').className = 'tab' + (which === t ? ' on' : '');
     });
@@ -454,9 +668,18 @@
   }
 
   $('tabSortBtn').addEventListener('click', function () { tab('sort'); });
+  $('tabPlayBtn').addEventListener('click', function () { tab('play'); });
+  $('tabBoardBtn').addEventListener('click', function () { tab('board'); });
   $('tabAddBtn').addEventListener('click', function () { tab('add'); });
   $('tabIdeasBtn').addEventListener('click', function () { tab('ideas'); });
-  $('btnFlag').addEventListener('click', openFlag);
+  $('btnFlag').addEventListener('click', function () { openFlag(); });
+  $('btnRound').addEventListener('click', startPractice);
+  $('btnChallenge').addEventListener('click', startBattle);
+  $('qNext').addEventListener('click', nextQuestion);
+  $('qQuit').addEventListener('click', quitRound);
+  $('qFlag').addEventListener('click', function () { if (round) openFlag({ dutch: round.qs[round.pos].d, english: round.qs[round.pos].e }); });
+  $('qDone').addEventListener('click', function () { showPlay('home'); });
+  $('btnBoardRefresh').addEventListener('click', loadGame);
   $('flagForm').addEventListener('submit', onFlagSubmit);
   $('btnIdea').addEventListener('click', sendIdea);
   $('mode').addEventListener('change', startSession);
@@ -478,7 +701,13 @@
   $('btnSend').addEventListener('click', sendQueue);
   document.addEventListener('keydown', function (ev) {
     var tg = ev.target && ev.target.tagName;
-    if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT' || $('tabSort').hidden || $('settings').open || $('flagDlg').open) return;
+    if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT' || $('settings').open || $('flagDlg').open) return;
+    if (!$('tabPlay').hidden && round) {
+      if (/^[1-4]$/.test(ev.key)) answer(Number(ev.key) - 1);
+      else if ((ev.key === 'Enter' || ev.key === ' ') && tg !== 'BUTTON') { ev.preventDefault(); nextQuestion(); }
+      return;
+    }
+    if ($('tabSort').hidden) return;
     if (/^[0-5]$/.test(ev.key)) rate(Number(ev.key));
     else if (ev.key === ' ') { ev.preventDefault(); reveal(); }
     else if (ev.key === 'Backspace') undo();

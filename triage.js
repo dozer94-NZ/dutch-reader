@@ -7,12 +7,12 @@
   'use strict';
 
   var LEVELS = [
-    { n: 0, name: 'New', short: 'New' },
-    { n: 1, name: 'Just met', short: 'Just met' },
-    { n: 2, name: 'Recognized', short: 'Recognized' },
+    { n: 0, name: 'Never seen it', short: 'Never seen it' },
+    { n: 1, name: 'Vaguely recognise it', short: 'Vaguely recognise it' },
+    { n: 2, name: 'Recognised', short: 'Recognised' },
     { n: 3, name: 'Familiar', short: 'Familiar' },
     { n: 4, name: 'Learned', short: 'Learned' },
-    { n: 5, name: 'Known ✓', short: 'Known' }
+    { n: 5, name: 'Never need to practise again', short: 'Never practise again' }
   ];
   // What each level is saved as, in words the Cobra phone already understands (16 Nov 2026).
   var SAVE_AS = {

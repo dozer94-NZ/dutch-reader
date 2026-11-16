@@ -16,9 +16,11 @@
 </header>
 
 <nav>
-  <button id="tabSortBtn" class="tab on">Sort words</button>
-  <button id="tabAddBtn" class="tab">Add a word</button>
-  <button id="tabIdeasBtn" class="tab">💡 Ideas</button>
+  <button id="tabSortBtn" class="tab on">Sort</button>
+  <button id="tabPlayBtn" class="tab">Play</button>
+  <button id="tabBoardBtn" class="tab">Board</button>
+  <button id="tabAddBtn" class="tab">Add word</button>
+  <button id="tabIdeasBtn" class="tab">💡</button>
 </nav>
 
 <main>
@@ -32,12 +34,12 @@
           <select id="mode">
             <option value="unrated">Words I haven't rated yet</option>
             <option value="all">All words</option>
-            <option value="0">Re-check: rated 0 New</option>
-            <option value="1">Re-check: rated 1 Just met</option>
-            <option value="2">Re-check: rated 2 Recognized</option>
-            <option value="3">Re-check: rated 3 Familiar</option>
-            <option value="4">Re-check: rated 4 Learned</option>
-            <option value="5">Re-check: rated 5 Known ✓</option>
+            <option value="0">Re-check: 0 Never seen it</option>
+            <option value="1">Re-check: 1 Vaguely recognise it</option>
+            <option value="2">Re-check: 2 Recognised</option>
+            <option value="3">Re-check: 3 Familiar</option>
+            <option value="4">Re-check: 4 Learned</option>
+            <option value="5">Re-check: 5 Never need to practise again</option>
           </select>
         </label>
       </div>
@@ -65,8 +67,66 @@
     </div>
     <details class="muted">
       <summary>What the numbers mean</summary>
-      <p>0 New: not yet known. 1 Just met: asked first. 2 Recognized: asked soon. 3 Familiar: asked less often. 4 Learned: asked now and then. 5 Known ✓: no need to practise it for a long time.</p>
+      <p>0 Never seen it: asked first. 1 Vaguely recognise it: asked soon. 2 Recognised: asked fairly soon. 3 Familiar: asked less often. 4 Learned: asked now and then. 5 Never need to practise again: not asked for about a year.</p>
     </details>
+  </section>
+
+  <!-- ===== Play ===== -->
+  <section id="tabPlay" hidden>
+    <div id="playHome">
+      <div class="card">
+        <h2 style="margin-top:0">⭐ Word of the week</h2>
+        <div id="wotwBox"></div>
+      </div>
+      <div class="card">
+        <h2 style="margin-top:0">Quick round</h2>
+        <p class="muted">10 questions: pick the right meaning. Words you find hard pay more points.</p>
+        <button id="btnRound" class="btn primary" type="button">Start a round</button>
+        <p id="streakMsg" class="muted"></p>
+        <p id="roundMsg" class="muted"></p>
+      </div>
+      <div class="card">
+        <h2 style="margin-top:0">⚔ Battles</h2>
+        <p class="muted">You play 10 questions now. Your friend plays the same ones whenever they like. Highest score wins.</p>
+        <div class="row">
+          <label class="grow">Challenge <select id="bOpp"></select></label>
+          <label class="grow">Kind <select id="bMode"><option value="normal">Normal</option><option value="handicap">Handicap</option></select></label>
+        </div>
+        <p class="muted">Handicap: only words neither of you knows yet, so nobody has a head start.</p>
+        <button id="btnChallenge" class="btn primary" type="button">Start battle</button>
+        <p id="battleMsg" class="muted"></p>
+        <div id="battleLists"></div>
+      </div>
+    </div>
+    <div id="quiz" class="card" hidden>
+      <div class="row"><span id="qInfo" class="grow muted"></span><button id="qQuit" class="btn small" type="button">Stop</button></div>
+      <div class="badges"><span id="qStar" class="chip ok" hidden>⭐ word of the week</span></div>
+      <div id="qWord" class="word"></div>
+      <div id="qOpts" class="opts"></div>
+      <p id="qFeedback" class="fb"></p>
+      <div class="row">
+        <button id="qNext" class="btn primary grow" type="button" hidden>Next →</button>
+        <button id="qFlag" class="btn" type="button" hidden>⚑ Flag issue</button>
+      </div>
+    </div>
+    <div id="quizEnd" class="card" hidden>
+      <h2 style="margin-top:0">Round finished</h2>
+      <div id="qSummary"></div>
+      <button id="qDone" class="btn primary" type="button">Back</button>
+    </div>
+  </section>
+
+  <!-- ===== Board ===== -->
+  <section id="tabBoard" hidden>
+    <div class="card">
+      <h2 style="margin-top:0">This week</h2>
+      <p id="boardWeek" class="muted"></p>
+      <ul id="boardList" class="list"></ul>
+      <p id="boardLast" class="muted"></p>
+      <p id="boardAll" class="muted"></p>
+      <p id="boardWins" class="muted"></p>
+      <button id="btnBoardRefresh" class="btn small" type="button">Refresh</button>
+    </div>
   </section>
 
   <!-- ===== Add a word ===== -->
@@ -148,6 +208,7 @@
 
 <script src="matcher.js"></script>
 <script src="triage.js"></script>
+<script src="game.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -25,26 +25,41 @@ Saved with the statuses the Cobra phone already understands, so Imke reacts stra
 
 | Tap | Name | `status` | `streak` | `next_due` |
 |---|---|---|---|---|
-| 0 | New | `unknown` | 0 | rating date (marks "rated 0") |
-| 1 | Just met | `needs_practice` | 0 | today |
-| 2 | Recognized | `learning` | 1 | +2 days |
+| 0 | Never seen it | `unknown` | 0 | rating date (marks "rated 0") |
+| 1 | Vaguely recognise it | `needs_practice` | 0 | today |
+| 2 | Recognised | `learning` | 1 | +2 days |
 | 3 | Familiar | `learning` | 2 | +7 days |
 | 4 | Learned | `known` | 3 | +60 days |
-| 5 | Known ✓ | `known` | 5 | +365 days |
+| 5 | Never need to practise again | `known` | 5 | +365 days |
 
 `right`, `wrong`, `last_practised` and `pronunciation` are never changed. A word counts as not rated
 yet if it is `unknown` with an empty `next_due`. Imke's later answers use her normal rules and replace the
 rating. When the app reads a row back it guesses the level from `status`, `streak` and `next_due`
 (4 versus 5 is told apart by a due date more than 200 days away).
 
+## Games (Play and Board tabs)
+Points only come from multiple-choice questions that the app marks itself (never from the 0-5 self-rating, which anyone could just tap).
+- **Quick round**: 10 questions (Dutch word, pick the English). Words you got wrong come first, then words that are due, then words you rated 0, then new A1/A2 words. Right answers update the person's progress file by the Cobra phone's rules (`right`, `wrong`, `streak`, `status`, `last_practised`, `next_due`); a right answer never brings a due date closer, so a word rated 5 stays at 5.
+- **Points**: right answer = 15 / 12 / 10 / 8 / 6 / 5 for a word at level 0 / 1 / 2 / 3 / 4 / 5, +5 if answered within 3 s, +2 within 6 s. Perfect round +20. First round of the day: +3 per day of the daily streak (max 10 days). Wrong = 0.
+- **Word of the week**: one easy word (A1/A2), the same for everyone, changes every Monday. First question of your next round until you get it right: +30, once a week.
+- **Board**: this week's ranking (Monday to Sunday), last week's winner, all-time points, battle wins.
+- **Battles (asynchronous)**: you play 10 questions now; the other person plays the exact same questions (the questions and the order of the options are stored in the challenge) whenever they like. Flat scoring (10 per right answer + speed bonus, no other bonuses). Higher score wins; a tie is decided by right answers, then it is a draw.
+- **Handicap battle**: only words that neither person knows yet (level 0 or not rated, for both), easiest (A1) first.
+- Your points are worked out on your own phone and anyone with an access key can edit the files, so this is for friends, not for strangers.
+
+### scores.csv and battles.csv (append-only, never touched by the Cobra phone)
+`dutch/scores.csv`: `id,date,who,mode,points,right,total,wotw` (`mode` = practice / battle / handicap; `wotw` = 1 if the word of the week was answered right in that round).
+`dutch/battles.csv`: `id,type,date,who,opponent,mode,score,right,total,questions`. `type` = `challenge` (the first player, with the 10 questions as JSON in `questions`) or `reply` (the opponent, same `id`). Only a reply from the named opponent counts, and only the first one.
+
 ## Files
 | File | What it does |
 |---|---|
 | `index.html`, `style.css`, `app.js` | The screens |
 | `triage.js` | The rating rules, the line-by-line saving into the progress file, and the order words come in |
+| `game.js` | The game rules: points, streaks, weeks, word of the week, question making, handicap picks, leaderboard, battle results |
 | `matcher.js` | Reads CSV, and spots forms of words you know (for "Add a word") |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Lets Chrome install it and open it offline |
-| `tests/` | `node tests/test_matcher.js [vocab.csv]`, `node tests/test_triage.js [dutch folder]`, `tests/test_browser.js` (whole app in headless Chrome with a fake GitHub) |
+| `tests/` | `node tests/test_matcher.js [vocab.csv]`, `node tests/test_triage.js [dutch folder]`, `node tests/test_game.js [dutch folder]`, `tests/test_browser.js` (whole app in headless Chrome with a fake GitHub) |
 
 ## Saving
 Every 10 ratings, on the Save button, and when you leave the page. It reads the newest file from GitHub,
