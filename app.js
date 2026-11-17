@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', packs: 'dutch/vocab/packs.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.6'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.7'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -299,6 +299,23 @@
   }
   function closeSheet() { if ($('sortSheet').open) $('sortSheet').close(); }
   function reveal() { var w = session.queue[session.pos]; if (!w) return; $('cEng').textContent = w.english; $('btnReveal').hidden = true; }
+  // Cosmetic: the word shrinks and drops into the number you picked; the next word fades in.
+  function flyWord(n) {
+    try {
+      if (!Element.prototype.animate || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+      var card = $('card'), src = $('cWord'), btn = $('rate').children[n]; if (!btn || !src.textContent) return;
+      var c = card.getBoundingClientRect(), s = src.getBoundingClientRect(), b = btn.getBoundingClientRect();
+      var ghost = src.cloneNode(true); ghost.removeAttribute('id'); ghost.setAttribute('aria-hidden', 'true');
+      ghost.style.cssText = 'position:absolute;margin:0;pointer-events:none;z-index:5;white-space:nowrap;left:' + (s.left - c.left) + 'px;top:' + (s.top - c.top) + 'px;width:' + s.width + 'px;height:' + s.height + 'px;transform-origin:50% 50%';
+      card.style.position = 'relative'; card.appendChild(ghost);
+      var dx = (b.left + b.width / 2) - (s.left + s.width / 2), dy = (b.top + b.height / 2) - (s.top + s.height / 2);
+      var an = ghost.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1 }, { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.15)', opacity: 0 }], { duration: 380, easing: 'cubic-bezier(.5,0,.8,.5)' });
+      an.onfinish = an.oncancel = function () { ghost.remove(); };
+    } catch (e) {}
+  }
+  function fadeInWord() {
+    try { if (Element.prototype.animate && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) $('cWord').animate([{ opacity: 0, transform: 'scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: 160, fill: 'backwards' }); } catch (e) {}
+  }
   function rate(n) {
     var w = session.queue[session.pos]; if (!w) return;
     if (n > 4 && !showFive) return;
@@ -307,7 +324,8 @@
     pending[k] = entry; store.set('pending.' + who, pending);
     var row = prev || blankRow(w); Object.assign(row, fieldsOfEntry(entry)); progress.set(k, row);
     session.done++; session.pos++;
-    showCard();
+    flyWord(n);
+    showCard(); fadeInWord();
     if (pendingList().length >= AUTOSAVE_EVERY && token && !saving) save();
   }
   function skip() { if (!session.queue[session.pos]) return; session.undo.push({ skip: true }); session.pos++; showCard(); }
