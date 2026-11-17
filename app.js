@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', packs: 'dutch/vocab/packs.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.7'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.8'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -597,10 +597,101 @@
   }
 
   function showPlay(view) { $('playHome').hidden = view !== 'home'; $('quiz').hidden = view !== 'quiz'; $('quizEnd').hidden = view !== 'end'; }
+  function quizLayout(flash) {                          // flashcard rounds use their own card instead of the question parts
+    ['qWord', 'qFeedback'].forEach(function (id) { $(id).hidden = flash; });
+    $('qNext').parentNode.hidden = flash; $('flashBox').hidden = !flash;
+    if (flash) { $('qOpts').hidden = true; $('qTypeBox').hidden = true; $('qPrompt').hidden = true; $('qStar').hidden = true; }
+  }
   function startRound(r) {
     round = Object.assign({ pos: 0, answers: [], pts: 0, locked: false }, r);
-    showPlay('quiz'); renderQuestion();
+    showPlay('quiz'); quizLayout(false); renderQuestion();
   }
+  // ---- Flashcards: flip, swipe right = got it, left = not yet; missed cards come back until all are got ----
+  var calmMotion = function () { return !Element.prototype.animate || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); };
+  function startFlash() {
+    var msg = $('flashMsg'); msg.textContent = '';
+    if (!words.length) { msg.textContent = 'Load the wordlist first (Settings).'; return; }
+    var seed = 'f' + Date.now() + Math.random(), chosen = G.pickPractice(words, progress, today(), seed, G.ROUND);
+    var qs = G.makeTypeQuestions(chosen, $('fDir').value, seed).map(function (q) { return { d: q.d, e: q.e, f: 1, dir: q.dir }; });
+    round = { kind: 'flash', flat: false, wotwKey: null, qs: qs, answers: [], pts: 0, pos: 0, locked: false,
+              fq: qs.map(function (_, i) { return i; }), fPos: 0, fMiss: [], retries: 0, flipped: false, missedFirst: 0 };
+    showPlay('quiz'); quizLayout(true); renderFlash();
+  }
+  function renderFlash() {
+    var q = round.qs[round.fq[round.fPos]], front = q.dir === 'en2nl' ? q.e : q.d, back = q.dir === 'en2nl' ? q.d : q.e, card = $('fCard');
+    round.flipped = false;
+    try { $('fCard').focus({ preventScroll: true }); } catch (e) {}   // keys must act on the card, never on a focused button
+    $('fFront').textContent = front; $('fBack').textContent = back; $('fBack').hidden = true;
+    $('fHint').textContent = 'Tap the card to flip it'; card.className = ''; card.style.transform = ''; $('fMark').textContent = '';
+    $('fTags').textContent = '';
+    var wd = allWords.filter(function (w) { return w.dutch === q.d && w.english === q.e; })[0];
+    packList.filter(function (p) { return p.kind === 'topic' && wd && (wd.tags || []).indexOf(p.pack) >= 0; }).forEach(function (p) { $('fTags').appendChild(h('span', { class: 'chip pk', text: p.name })); });
+    $('qInfo').textContent = round.retries === 0
+      ? 'Card ' + (round.fPos + 1) + ' of ' + round.fq.length + ' · ' + round.pts + ' points (banked when you finish)'
+      : 'Missed cards, go ' + (round.retries + 1) + ': ' + (round.fq.length - round.fPos) + ' to go · no points for retries';
+    if (!calmMotion()) card.animate([{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 260, delay: 80, fill: 'backwards' });
+  }
+  function flashFlip() {
+    if (!round || round.kind !== 'flash' || round.flipped) return;
+    round.flipped = true; $('fBack').hidden = false; $('fHint').textContent = 'Swipe right (or tap ✓) if you got it, left (or ✗) if not';
+    if (!calmMotion()) $('fCard').animate([{ transform: 'scaleX(.7)' }, { transform: 'none' }], { duration: 180 });
+  }
+  function flashGhost(got) {
+    try {
+      if (calmMotion()) return;
+      var stage = $('fStage'), card = $('fCard'), sr = stage.getBoundingClientRect(), cr = card.getBoundingClientRect(), g = card.cloneNode(true);
+      g.removeAttribute('id'); g.className = 'fghost ' + (got ? 'yes' : 'no'); g.setAttribute('aria-hidden', 'true');
+      g.style.cssText = 'left:' + (cr.left - sr.left) + 'px;top:' + (cr.top - sr.top) + 'px;width:' + cr.width + 'px;height:' + cr.height + 'px;';
+      Array.prototype.forEach.call(g.querySelectorAll('[id]'), function (n) { n.removeAttribute('id'); });
+      g.querySelector('.muted') && (g.querySelector('.muted').textContent = '');
+      stage.appendChild(g);
+      var from = card.style.transform || 'none', run = (got ? 1 : -1) * (window.innerWidth || 600);
+      var an = g.animate([{ transform: from, opacity: 1 }, { transform: 'translateX(' + run + 'px) rotate(' + (got ? 25 : -25) + 'deg)', opacity: 0 }], { duration: 300, easing: 'ease-in' });
+      an.onfinish = an.oncancel = function () { g.remove(); };
+    } catch (e) {}
+  }
+  function flashJudge(got) {
+    if (!round || round.kind !== 'flash') return;
+    if (!round.flipped) { $('fHint').textContent = 'Flip the card first: tap it to see the answer.'; return; }
+    var idx = round.fq[round.fPos], q = round.qs[idx], k = T.keyOf(q.d, q.e), t0 = today();
+    if (round.retries === 0) {                           // only the first go counts: points and the word list
+      var lv = T.levelOf(progress.get(k), t0), pts = got ? G.questionPoints(lv, 1e9, false) : 0;   // no speed bonus: you mark yourself
+      round.answers.push({ ok: got, pts: pts, key: k }); round.pts += pts;
+      var row = progress.get(k) || blankRow({ dutch: q.d, english: q.e }), fields = G.applyAnswer(row, got, t0);
+      pending[k] = { dutch: q.d, english: q.e, kind: 'answer', fields: fields }; store.set('pending.' + who, pending);
+      Object.assign(row, fields); progress.set(k, row);
+      if (!got) round.missedFirst++;
+      updateCounts();
+    }
+    if (!got) round.fMiss.push(idx);
+    flashGhost(got);
+    round.fPos++;
+    if (round.fPos >= round.fq.length) {
+      if (round.fMiss.length) { round.fq = round.fMiss; round.fMiss = []; round.fPos = 0; round.retries++; }
+      else { finishRound(); return; }
+    }
+    renderFlash();
+  }
+  (function flashSwipe() {                               // drag the card: past about a third of its width = a decision
+    var card = $('fCard'), x0 = null, dx = 0, id = null;
+    card.addEventListener('pointerdown', function (ev) { if (!round || round.kind !== 'flash') return; x0 = ev.clientX; dx = 0; id = ev.pointerId; try { card.setPointerCapture(id); } catch (e) {} card.classList.add('dragging'); });
+    card.addEventListener('pointermove', function (ev) {
+      if (x0 === null) return; dx = ev.clientX - x0;
+      if (Math.abs(dx) < 6) return;
+      card.style.transform = 'translateX(' + dx + 'px) rotate(' + (dx / 18) + 'deg)';
+      var yes = dx > 0; card.classList.toggle('yes', yes && round.flipped); card.classList.toggle('no', !yes && round.flipped);
+      $('fMark').textContent = round.flipped ? (yes ? 'GOT IT' : 'NOT YET') : ''; $('fMark').style.opacity = String(Math.min(1, Math.abs(dx) / 80));
+    });
+    function end() {
+      if (x0 === null) return;
+      var d = dx; x0 = null; card.classList.remove('dragging'); $('fMark').style.opacity = '0';
+      if (Math.abs(d) < 8) { card.style.transform = ''; card.className = ''; flashFlip(); return; }
+      var far = Math.abs(d) > Math.max(70, card.offsetWidth / 3);
+      if (far && round && round.flipped) flashJudge(d > 0);
+      else { if (far) $('fHint').textContent = 'Flip the card first: tap it to see the answer.'; card.style.transform = ''; card.className = ''; }
+    }
+    card.addEventListener('pointerup', end); card.addEventListener('pointercancel', function () { x0 = null; card.style.transform = ''; card.className = ''; card.classList.remove('dragging'); });
+  })();
   function startPractice() {
     if (!words.length) { $('roundMsg').textContent = 'Load the wordlist first (Settings).'; return; }
     $('roundMsg').textContent = '';
@@ -728,7 +819,7 @@
     var wotwHit = !!round.wotwKey && round.answers.some(function (a) { return a.key === round.wotwKey && a.ok; });
     var res = G.scoreRound(round.answers, { flat: flat, wotwHit: wotwHit, newDay: newDay, streak: streak });
     var rid = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    if (res.total) scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.kind === 'type' ? 'type' : round.kind === 'drill' ? 'drill' : (round.mode === 'handicap' ? 'handicap' : 'battle')),
+    if (res.total) scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.kind === 'flash' ? 'flash' : round.kind === 'type' ? 'type' : round.kind === 'drill' ? 'drill' : (round.mode === 'handicap' ? 'handicap' : 'battle')),
                       points: String(res.points), right: String(res.right), total: String(res.total), wotw: wotwHit ? '1' : '' });
     store.set('scoreQ', scoreQueue);
     var lines = [res.total ? 'You got ' + res.right + ' of ' + res.total + ' right and scored ' + res.points + ' points.' : 'No answers were counted this round, so no points.'], p = res.parts;
@@ -737,6 +828,7 @@
       if (p.wotw) lines.push('Word of the week: +' + p.wotw);
       if (p.streak) lines.push('Daily streak of ' + streak + (streak === 1 ? ' day' : ' days') + ': +' + p.streak);
     }
+    if (round.kind === 'flash' && round.missedFirst) lines.push('You went back over ' + round.missedFirst + ' missed ' + (round.missedFirst === 1 ? 'card' : 'cards') + ' until you got them all. Retries earn no points.');
     if (flat) {
       battleQueue.push({ id: round.id, type: round.kind === 'challenge' ? 'challenge' : 'reply', date: t0, who: who, opponent: round.opp, mode: round.mode || 'normal',
                          score: String(res.points), right: String(res.right), total: String(res.total), questions: round.kind === 'challenge' ? JSON.stringify(round.qs) : '' });
@@ -856,6 +948,9 @@
   $('btnChallenge').addEventListener('click', startBattle);
   $('qNext').addEventListener('click', nextQuestion);
   $('qQuit').addEventListener('click', quitRound);
+  $('btnFlash').addEventListener('click', startFlash);
+  $('fYes').addEventListener('click', function () { flashJudge(true); });
+  $('fNo').addEventListener('click', function () { flashJudge(false); });
   $('qFlag').addEventListener('click', function () { if (round) openFlag({ dutch: round.qs[round.pos].d, english: round.qs[round.pos].e }); });
   $('qDone').addEventListener('click', function () { showPlay('home'); });
   $('btnBoardRefresh').addEventListener('click', loadGame);
@@ -882,9 +977,16 @@
   $('btnLookup').addEventListener('click', lookup);
   $('btnAdd').addEventListener('click', addToQueue);
   $('btnSend').addEventListener('click', sendQueue);
+  document.addEventListener('keyup', function (ev) { if (round && round.kind === 'flash' && (ev.key === ' ' || ev.key === 'Enter')) ev.preventDefault(); });   // stops a focused button being clicked by Space
   document.addEventListener('keydown', function (ev) {
     var tg = ev.target && ev.target.tagName;
     if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT' || $('settings').open || $('flagDlg').open) return;
+    if (!$('tabPlay').hidden && round && round.kind === 'flash') {
+      if (ev.key === ' ' || ev.key === 'Enter' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown') { ev.preventDefault(); flashFlip(); }
+      else if (ev.key === 'ArrowRight') { ev.preventDefault(); flashJudge(true); }
+      else if (ev.key === 'ArrowLeft') { ev.preventDefault(); flashJudge(false); }
+      return;
+    }
     if (!$('tabPlay').hidden && round) {
       if (/^[1-4]$/.test(ev.key)) answer(Number(ev.key) - 1);
       else if ((ev.key === 'Enter' || ev.key === ' ') && tg !== 'BUTTON') { ev.preventDefault(); nextQuestion(); }

@@ -165,3 +165,15 @@ dialog.sheet { border-width: 3px 0 0; border-radius: 20px 20px 0 0; }
 .keyhint{display:none;font-size:.85em}
 @media (hover:hover) and (pointer:fine){.keyhint{display:block}}
 .chip.pk{background:#1f5a58;color:#f3e6c4}
+
+/* v8: flashcards */
+#fStage { position: relative; margin: 8px 0 12px; }
+#fCard { position: relative; touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; min-height: 200px; padding: 22px 12px 14px; text-align: center; background: var(--card); border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--ink); will-change: transform; }
+#fCard.dragging { cursor: grabbing; }
+#fCard.yes { border-color: var(--teal); box-shadow: 4px 4px 0 var(--teal); }
+#fCard.no { border-color: #b3261e; box-shadow: 4px 4px 0 #b3261e; }
+#fCard #fBack { border-top: 2px dotted var(--ink); padding-top: 12px; margin-top: 12px; }
+#fMark { position: absolute; top: 10px; right: 12px; font: 400 22px 'Anton', sans-serif; opacity: 0; letter-spacing: 1px; }
+#fCard.yes #fMark { color: var(--teal); right: auto; left: 12px; }
+#fCard.no #fMark { color: #b3261e; }
+.fghost { position: absolute; pointer-events: none; z-index: 5; margin: 0; }

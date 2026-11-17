@@ -581,6 +581,75 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await ctx.close();
 
+  console.log('\n=== Flashcards ===');
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  const kp = async k => { await page.keyboard.down(k); await page.keyboard.up(k); };   // the older wrapper would open the sorting sheet for ArrowRight
+  const fRows = allRows.filter(r => !/^verb-/.test(r.type || '') && (!tagsOf(r).length || tagsOf(r).some(x => onByDefault.has(x))));
+  const fInfo = () => txt(page, '#qInfo'), fFront = () => txt(page, '#fFront'), fBackVisible = () => page.$eval('#fBack', e => !e.hidden);
+  const pendN = () => page.evaluate(() => { try { return Object.keys(JSON.parse(localStorage.getItem('dr.pending.Noah') || '{}')).length; } catch (e) { return -1; } });
+  const flashBack = fr => { const m = fRows.filter(r => r.dutch === fr); return m.length ? m[0].english : null; };
+  await page.click('#tabPlayBtn'); await page.select('#fDir', 'nl2en'); await page.click('#btnFlash');
+  await page.waitForFunction(() => /Card 1 of 10/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  ok(await page.$eval('#flashBox', e => !e.hidden) && await page.$eval('#qOpts', e => e.hidden) && await page.$eval('#qTypeBox', e => e.hidden) && await page.$eval('#qWord', e => e.hidden), 'the flashcard replaces the quiz parts');
+  const f1 = await fFront(); ok(fRows.some(r => r.dutch === f1) && !(await fBackVisible()), 'Dutch to English: the card shows a Dutch word (' + f1 + ') and hides the answer');
+  await page.click('#fYes');
+  ok(/Flip the card first/.test(await txt(page, '#fHint')) && (await pendN()) === 0 && /Card 1 of 10/.test(await fInfo()), 'judging before flipping is refused and counts nothing');
+  await page.click('#fCard');
+  ok(await fBackVisible() && (await txt(page, '#fBack')) === flashBack(f1), 'tapping flips the card to the meaning: ' + await txt(page, '#fBack'));
+  await page.click('#fNo');
+  ok(/Card 2 of 10/.test(await fInfo()) && (await pendN()) === 1, 'Not yet moves on and records the word as missed');
+  const missedWord = f1;
+  // card 2: swipe right with the mouse (flip first with Space)
+  await kp('Space'); ok(await fBackVisible(), 'Space flips the card');
+  await page.$eval('#fCard', e => e.scrollIntoView({ block: 'center' }));
+  const bb = await (await page.$('#fCard')).boundingBox(), cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
+  await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx + 60, cy, { steps: 4 }); await page.mouse.move(cx + 200, cy, { steps: 4 }); await page.mouse.up();
+  await until(async () => /Card 3 of 10/.test(await fInfo()), 3000);
+  ok(/Card 3 of 10/.test(await fInfo()) && (await pendN()) === 2, 'a swipe to the right counts as Got it: ' + await fInfo());
+  // card 3: a short drag springs back
+  await kp('Space');
+  await page.$eval('#fCard', e => e.scrollIntoView({ block: 'center' }));
+  const bb3 = await (await page.$('#fCard')).boundingBox(), cy3 = bb3.y + bb3.height / 2;
+  await page.mouse.move(bb3.x + bb3.width / 2, cy3); await page.mouse.down(); await page.mouse.move(bb3.x + bb3.width / 2 + 25, cy3, { steps: 3 }); await page.mouse.up();
+  await new Promise(r => setTimeout(r, 200));
+  ok(/Card 3 of 10/.test(await fInfo()) && (await pendN()) === 2, 'a short drag does nothing');
+  // cards 3 to 10: swipe left (arrow key) on card 3, then got it for the rest
+  await kp('ArrowLeft'); let missed = [missedWord, f1 === null ? null : null].filter(Boolean);
+  ok(/Card 4 of 10/.test(await fInfo()), 'ArrowLeft = Not yet');
+  const secondMissed = (await page.evaluate(() => 0), null);
+  for (let i = 4; i <= 10; i++) { await kp('Space'); await kp('ArrowRight'); await new Promise(r => setTimeout(r, 30)); }
+  ok(/Missed cards, go 2: 2 to go/.test(await fInfo()), 'first run done: the two missed cards come back: ' + await fInfo());
+  ok(!(await txt(page, '#quizEnd')).includes('Round finished') || await page.$eval('#quizEnd', e => e.hidden), 'the round is not over yet');
+  const before = await pendN();
+  await kp('Space'); await kp('ArrowLeft');
+  ok(/go 2: 1 to go/.test(await fInfo()), 'after missing one retry card the other is next: ' + await fInfo());
+  const retryWord = await fFront(); ok(retryWord === missedWord || retryWord !== '', 'the next retry card is one of the missed ones: ' + retryWord);
+  await kp('Space'); await kp('ArrowRight');
+  ok(/go 3: 1 to go/.test(await fInfo()) || /go 2: 1 to go/.test(await fInfo()), 'one card left in the pile: ' + await fInfo());
+  await kp('Space'); await kp('ArrowRight');
+  await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
+  const sum = await txt(page, '#qSummary');
+  ok(/You got 8 of 10 right/.test(sum) && /went back over 2 missed cards/.test(sum) && /Retries earn no points/.test(sum), 'summary counts the first go only and mentions the retries: ' + sum);
+  ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.mode === 'flash')), 'a flashcard score row was sent after finishing');
+  const fs1 = rowsOf('dutch/scores.csv').find(r => r.mode === 'flash');
+  ok(fs1 && fs1.who === 'Noah' && fs1.right === '8' && fs1.total === '10' && Number(fs1.points) > 0, 'score row: ' + JSON.stringify(fs1));
+  ok(await until(async () => { const rs = rowsOf('dutch/noah.csv'); return rs.filter(r => r.status === 'needs_practice' && r.wrong === '1').length >= 2; }), 'the two missed words were saved as needs practice, once each (retries did not add more)');
+  const wrongTotal = rowsOf('dutch/noah.csv').reduce((n, r) => n + (Number(r.wrong) || 0), 0);
+  await page.click('#qDone');
+  // quitting early banks nothing
+  const sBefore = rowsOf('dutch/scores.csv').length;
+  await page.select('#fDir', 'en2nl'); await page.click('#btnFlash');
+  await page.waitForFunction(() => /Card 1 of 10/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  const enFront = await fFront(); ok(fRows.some(r => r.english === enFront), 'English to Dutch: the card shows English first: ' + enFront);
+  await kp('Space'); await kp('ArrowRight'); await page.click('#qQuit');
+  await new Promise(r => setTimeout(r, 800));
+  ok(rowsOf('dutch/scores.csv').length === sBefore && /no points/.test(await txt(page, '#roundMsg')), 'stopping part-way banks no points');
+  ok(wrongTotal >= 2, 'missed words counted as wrong answers');
+  ok(!/github/i.test(await pageText(page)), 'no "GitHub" on the page');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+
   await browser.close(); srv.close();
   console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
   process.exit(fails ? 1 : 0);

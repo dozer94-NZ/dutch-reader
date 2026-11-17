@@ -96,3 +96,6 @@ Play tab. Shows the English word and you type the Dutch, or the other way, or mi
 
 ## Version rule
 `VERSION` in `app.js` and `version.json` must be bumped together on every change, and the cache name in `sw.js` when files change.
+
+## Flashcards (added 2026-11-17)
+Play tab. 10 cards (Dutch to English, English to Dutch or mixed). Tap to flip, then swipe right (or tap ✓ / press →) for "Got it", left (✗ / ←) for "Not yet"; Space flips. You must flip before judging. The first go at each card is saved like any answer (right or wrong) and earns the word's base points, with no speed bonus because you mark yourself. Missed cards come back until all are got; retries earn nothing and change nothing. Points are banked (score row, mode `flash`) only when the last card is done; stopping early banks nothing.

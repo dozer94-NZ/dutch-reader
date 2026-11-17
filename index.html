@@ -56,6 +56,15 @@
         <p id="roundMsg" class="muted"></p>
       </div>
       <div class="card">
+        <h2 style="margin-top:0">Flashcards</h2>
+        <p class="muted">10 cards. Tap a card to flip it, then swipe right if you got it, left if not. Missed cards come back at the end until you get them all. Retries earn no points, and you need to finish the cards to bank your points.</p>
+        <label>Direction
+          <select id="fDir"><option value="mixed">Mixed</option><option value="nl2en">Dutch to English</option><option value="en2nl">English to Dutch</option></select>
+        </label>
+        <button id="btnFlash" class="btn primary" type="button">Start flashcards</button>
+        <p id="flashMsg" class="muted"></p>
+      </div>
+      <div class="card">
         <h2 style="margin-top:0">Type it</h2>
         <p class="muted">10 words: type the answer instead of picking it. Typing is worth double points. Capitals and accents don't matter, and one wrong letter is "Almost" and isn't counted.</p>
         <label>Direction
@@ -97,6 +106,22 @@
         </div>
       </form>
       <p id="qFeedback" class="fb"></p>
+      <div id="flashBox" hidden>
+        <div id="fStage">
+          <div id="fCard" tabindex="0" role="button" aria-label="Flashcard. Tap to flip.">
+            <div id="fTags" class="badges"></div>
+            <div id="fFront" class="word"></div>
+            <div id="fBack" class="word small" hidden></div>
+            <p id="fHint" class="muted">Tap the card to flip it</p>
+            <span id="fMark" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="row">
+          <button id="fNo" class="btn grow" type="button" tabindex="-1">✗ Not yet</button>
+          <button id="fYes" class="btn primary grow" type="button" tabindex="-1">Got it ✓</button>
+        </div>
+        <p class="keyhint muted">Keys: Space flip · ← not yet · → got it</p>
+      </div>
       <div class="row">
         <button id="qNext" class="btn primary grow" type="button" hidden>Next →</button>
         <button id="qFlag" class="btn" type="button" hidden>⚑ Flag issue</button>
