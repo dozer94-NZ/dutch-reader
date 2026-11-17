@@ -220,6 +220,24 @@
 
   // ---- battles: rows are {id, type: challenge|reply, date, who, opponent, mode, score, right, total, questions} ----
   function num(x) { return parseInt(x, 10) || 0; }
+  // ---- best of 3 races (battles from 2026-11-17 on): each question in a challenge carries r (race 0, 1, 2) and p (points) ----
+  var RACES = 3, RACE_Q = 5;
+  function bestOf3(aP, bP, rIdx) {        // a = challenger, b = replier; a race counts once the replier has played all of it
+    var races = [], aw = 0, bw = 0, at = 0, bt = 0;
+    rIdx.forEach(function (r, i) {
+      var x = races[r] || (races[r] = { a: 0, b: 0, n: 0, played: 0 });
+      x.a += aP[i] || 0; x.n++;
+      if (i < bP.length) { x.b += bP[i] || 0; x.played++; }
+    });
+    races.forEach(function (x) {
+      if (!x || x.played < x.n) return;
+      x.done = true; at += x.a; bt += x.b;
+      if (x.a > x.b) aw++; else if (x.b > x.a) bw++;
+    });
+    return { races: races, aWins: aw, bWins: bw, aTotal: at, bTotal: bt,
+             winner: aw !== bw ? (aw > bw ? 'a' : 'b') : (at !== bt ? (at > bt ? 'a' : 'b') : 'draw') };
+  }
+  function parseJson(t) { try { return t ? JSON.parse(t) : null; } catch (e) { return null; } }
   function battleStates(rows) {
     var by = {}, order = [];
     rows.forEach(function (r) {
@@ -227,10 +245,19 @@
     });
     rows.forEach(function (r) {
       var s = by[r.id];
-      // opponent '*' = an open challenge: the first person (not the challenger) to play it takes it
-      if (r.type === 'reply' && s && !s.done && (s.b === '*' ? r.who !== s.a : r.who === s.b)) {
+      if (!s || s.done) return;
+      // opponent '*' = an open challenge: the first person (not the challenger) to start or play it takes it
+      var allowed = s.b === '*' ? r.who !== s.a : r.who === s.b;
+      if (r.type === 'start' && allowed && !s.startedBy) { s.startedBy = r.who; s.b = r.who; }   // starting a reply locks the battle to you
+      if (r.type === 'reply' && allowed) {
         s.done = true; s.b = r.who; s.bScore = num(r.score); s.bRight = num(r.right); s.bTotal = num(r.total);
-        s.winner = s.aScore !== s.bScore ? (s.aScore > s.bScore ? s.a : s.b) : (s.aRight !== s.bRight ? (s.aRight > s.bRight ? s.a : s.b) : 'draw');
+        var cq = parseJson(s.questions), rep = parseJson(r.questions);
+        if (rep && rep.forfeit) { s.forfeit = true; s.winner = s.a; }
+        else if (cq && cq.length && typeof cq[0].r === 'number' && rep && rep.p) {
+          var res = bestOf3(cq.map(function (q) { return q.p || 0; }), rep.p, cq.map(function (q) { return q.r; }));
+          s.bo3 = res; s.winner = res.winner === 'draw' ? 'draw' : (res.winner === 'a' ? s.a : s.b);
+        }
+        else s.winner = s.aScore !== s.bScore ? (s.aScore > s.bScore ? s.a : s.b) : (s.aRight !== s.bRight ? (s.aRight > s.bRight ? s.a : s.b) : 'draw');
       }
     });
     return order.map(function (id) { return by[id]; });
@@ -241,7 +268,7 @@
     return w;
   }
 
-  return { BATTLE_SECONDS: BATTLE_SECONDS, battlePoints: battlePoints, MAXQ: MAXQ, ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
+  return { RACES: RACES, RACE_Q: RACE_Q, bestOf3: bestOf3, BATTLE_SECONDS: BATTLE_SECONDS, battlePoints: battlePoints, MAXQ: MAXQ, ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
            weekStart: weekStart, parseDrill: parseDrill, makeDrillQuestions: makeDrillQuestions, speedBonus: speedBonus, questionPoints: questionPoints, streakDays: streakDays, scoreRound: scoreRound,
            applyAnswer: applyAnswer, makeQuestions: makeQuestions, pickPractice: pickPractice, pickNormal: pickNormal,
            pickHandicap: pickHandicap, wordOfWeek: wordOfWeek, checkTyped: checkTyped, typedPoints: typedPoints, makeTypeQuestions: makeTypeQuestions, fold: fold, leaderboard: leaderboard, battleStates: battleStates, battleWins: battleWins };

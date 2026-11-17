@@ -167,5 +167,26 @@ eq(G.pickPractice(pw, new Map(), '2026-11-17', 's', 1)[0].dutch, 'x2', 'a new wo
 eq([G.battlePoints(0), G.battlePoints(999), G.battlePoints(1000), G.battlePoints(4500), G.battlePoints(9000), G.battlePoints(9999), G.battlePoints(10000), G.battlePoints(25000)], [10, 10, 9, 6, 1, 1, 0, 0], 'a right answer pays 10 in the first second down to 1 in the last; 10 seconds is too late');
 eq(G.BATTLE_SECONDS, 10, 'ten seconds a question');
 
+// best of 3 races
+const rIdx = [0,0,0,0,0,1,1,1,1,1,2,2,2,2,2];
+let b3 = G.bestOf3([10,10,10,10,10, 1,1,1,1,1, 5,5,5,5,5], [1,1,1,1,1, 10,10,10,10,10, 9,9,9,9,9], rIdx);
+eq([b3.aWins, b3.bWins, b3.winner], [1, 2, 'b'], 'two races out of three wins');
+b3 = G.bestOf3([10,10,10,10,10, 9,9,9,9,9, 5,5,5,5,5], [1,1,1,1,1, 1,1,1,1,1], rIdx);
+eq([b3.aWins, b3.bWins, b3.winner, b3.races[2].done], [2, 0, 'a', undefined], '2 - 0 after two races: race 3 not played and not counted');
+b3 = G.bestOf3([10,10,10,10,10, 5,5,5,5,5, 5,5,5,5,5], [5,5,5,5,6, 10,10,10,10,10, 5,5,5,5,5], rIdx);
+eq([b3.aWins, b3.bWins, b3.winner], [1, 1, 'b'], 'level on races (one tied): more points overall wins');
+b3 = G.bestOf3([5,5,5,5,5, 5,5,5,5,5, 5,5,5,5,5], [5,5,5,5,5, 5,5,5,5,5, 5,5,5,5,5], rIdx);
+eq(b3.winner, 'draw', 'all equal: a draw (money back)');
+const q15 = JSON.stringify(rIdx.map((r, i) => ({ d: 'w' + i, e: 'x', r: r, p: 10 })));
+let bs = G.battleStates([{ id: 'b9', type: 'challenge', who: 'Noah', opponent: '*', score: '150', right: '15', total: '15', questions: q15 },
+  { id: 'b9', type: 'start', who: 'Anna' }, { id: 'b9', type: 'reply', who: 'Sam', score: '150', questions: JSON.stringify({ p: rIdx.map(() => 10) }) }])[0];
+eq([bs.startedBy, bs.b, bs.done], ['Anna', 'Anna', false], 'starting an open challenge claims it: someone else\'s reply no longer counts');
+bs = G.battleStates([{ id: 'b9', type: 'challenge', who: 'Noah', opponent: 'Anna', score: '150', right: '15', total: '15', questions: q15 },
+  { id: 'b9', type: 'start', who: 'Anna' }, { id: 'b9', type: 'reply', who: 'Anna', score: '30', questions: JSON.stringify({ p: [10,10,10], forfeit: true }) }])[0];
+eq([bs.done, bs.forfeit, bs.winner], [true, true, 'Noah'], 'a forfeit reply hands the win to the challenger');
+bs = G.battleStates([{ id: 'b9', type: 'challenge', who: 'Noah', opponent: 'Anna', score: '150', right: '15', total: '15', questions: q15 },
+  { id: 'b9', type: 'reply', who: 'Anna', score: '100', questions: JSON.stringify({ p: rIdx.map((r) => r === 0 ? 10 : 10) }) }])[0];
+eq([bs.winner, bs.bo3.aWins, bs.bo3.bWins], ['draw', 0, 0], 'best of 3 decided from the per-question points, not the score column');
+
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
 process.exit(fails ? 1 : 0);

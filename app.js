@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', packs: 'dutch/vocab/packs.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.11'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.12'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -553,6 +553,7 @@
         store.set('scoresCsv', scoresCsv); store.set('battlesCsv', battlesCsv);
       } catch (e) { /* keep the copies saved on this phone */ }
     }
+    if (!round) checkAbandoned();
     renderGame();
   }
   function renderGame() { renderPlayHome(); renderBoard(); renderBattles(); }
@@ -575,24 +576,26 @@
     $('bBalance').textContent = 'You have ' + eur(balanceOf(who)) + ' to wager.'; setWager(Number($('bWager').value));
     $('btnChallenge').disabled = !sel.options.length;
   }
+  function isBo3(s) { try { var q = JSON.parse(s.questions); return !!(q && q[0] && typeof q[0].r === 'number'); } catch (e) { return false; } }
   function renderBattles() {
     var states = G.battleStates(battleRows()), box = $('battleLists'); box.textContent = '';
-    var todo = states.filter(function (s) { return !s.done && (s.b === who || (s.b === '*' && s.a !== who)); }),
+    var todo = states.filter(function (s) { return !s.done && !s.startedBy && (s.b === who || (s.b === '*' && s.a !== who)); }),
         wait = states.filter(function (s) { return !s.done && s.a === who; }),
         done = states.filter(function (s) { return s.done && (s.a === who || s.b === who); }).slice(-8).reverse();
     function row(text, btn) { return h('div', { class: 'brow' }, h('span', { class: 'grow', text: text }), btn || null); }
     if (todo.length) box.appendChild(h('h3', { text: 'Waiting for you' }));
     todo.forEach(function (s) {
       var st = stakeOf(s), need = st && st > balanceOf(who);
-      box.appendChild(row((s.b === '*' ? 'Open challenge from ' + s.a + ' (' : s.a + ' challenged you (') + modeName(s.mode) + ', ' + s.date + ') · ' + s.a + ' scored ' + s.aScore +
+      box.appendChild(row((s.b === '*' ? 'Open challenge from ' + s.a + ' (' : s.a + ' challenged you (') + modeName(s.mode) + ', ' + s.date + ') · ' + (isBo3(s) ? 'best of 3 races' : s.a + ' scored ' + s.aScore) +
           (st ? ' · ' + eur(st) + ' each, ' + eur(2 * st) + ' to the winner' + (s.b === '*' ? ' · first to play it takes it' : '') : '') + (need ? ' · you need ' + eur(st) : ''),
         need ? null : h('button', { class: 'btn small primary', type: 'button', text: 'Play', onclick: function () { playReply(s); } })));
     });
     if (wait.length) box.appendChild(h('h3', { text: 'Waiting for them' }));
-    wait.forEach(function (s) { var st = stakeOf(s); box.appendChild(row('You vs ' + (s.b === '*' ? 'anyone' : s.b) + ': you scored ' + s.aScore + ' (' + modeName(s.mode) + ', ' + s.date + ')' + (st ? ' · ' + eur(st) + ' at stake' : ''))); });
+    wait.forEach(function (s) { var st = stakeOf(s); box.appendChild(row('You vs ' + (s.b === '*' ? 'anyone' : s.b) + ': you scored ' + s.aScore + ' (' + modeName(s.mode) + ', ' + s.date + ')' + (st ? ' · ' + eur(st) + ' at stake' : '') + (s.startedBy ? ' · ' + s.startedBy + ' is playing it' : ''))); });
     if (done.length) box.appendChild(h('h3', { text: 'Finished' }));
     done.forEach(function (s) {
-      box.appendChild(row(s.a + ' ' + s.aScore + ' – ' + s.bScore + ' ' + s.b + ' · ' + (s.winner === 'draw' ? 'draw' : s.winner + ' won') + ' (' + modeName(s.mode) + ', ' + s.date + ')' + (stakeOf(s) ? ' · wager ' + eur(stakeOf(s)) : '')));
+      var sc = s.forfeit ? s.b + ' quit' : s.bo3 ? s.a + ' ' + s.bo3.aWins + ' – ' + s.bo3.bWins + ' ' + s.b + ' in races' : s.a + ' ' + s.aScore + ' – ' + s.bScore + ' ' + s.b;
+      box.appendChild(row(sc + ' · ' + (s.winner === 'draw' ? 'draw' : s.winner + ' won') + ' (' + modeName(s.mode) + ', ' + s.date + ')' + (stakeOf(s) ? ' · wager ' + eur(stakeOf(s)) : '')));
     });
     if (!states.length) box.appendChild(h('p', { class: 'muted', text: 'No battles yet. Challenge someone above.' }));
   }
@@ -614,15 +617,23 @@
     $('boardWins').textContent = wn.length ? 'Battle wins: ' + wn.map(function (n) { return n + ' ' + wins[n]; }).join(' · ') : 'No battles finished yet.';
   }
 
-  function showPlay(view) { $('playHome').hidden = view !== 'home'; $('quiz').hidden = view !== 'quiz'; $('quizEnd').hidden = view !== 'end'; }
+  // Every game opens full screen over the app; the same short pause follows every answer (tests may shorten it with dr.pause)
+  var PAUSE = Number(store.get('pause', 1200)) || 1200, REVEAL = Math.round(PAUSE * 0.4), TYPE_PAUSE = Math.round(PAUSE * 1.7), BREAK = Math.round(PAUSE * 2.2);
+  function showPlay(view) {
+    $('playHome').hidden = view !== 'home'; $('quiz').hidden = view !== 'quiz'; $('quizEnd').hidden = view !== 'end';
+    document.body.classList.toggle('playing', view === 'quiz' || view === 'end');
+    $('quitBox').hidden = true; $('raceBreak').hidden = true;
+    if (view !== 'quiz') delete $('quiz').dataset.q;
+    if (view !== 'home') try { window.scrollTo(0, 0); } catch (e) {}
+  }
   function quizLayout(flash) {                          // flashcard rounds use their own card instead of the question parts
     ['qWord', 'qFeedback'].forEach(function (id) { $(id).hidden = flash; });
-    $('qNext').parentNode.hidden = flash; $('flashBox').hidden = !flash;
-    if (flash) { $('qOpts').hidden = true; $('qTypeBox').hidden = true; $('qPrompt').hidden = true; $('qStar').hidden = true; }
+    $('flashBox').hidden = !flash;
+    if (flash) { $('qOpts').hidden = true; $('qTypeBox').hidden = true; $('qPrompt').hidden = true; $('qStar').hidden = true; $('qRace').hidden = true; }
   }
   function startRound(r) {
     round = Object.assign({ pos: 0, answers: [], pts: 0, locked: false }, r);
-    showPlay('quiz'); quizLayout(false); renderQuestion();
+    showPlay('quiz'); quizLayout(false); $('quiz').classList.toggle('battle', !!round.flat); renderQuestion();
   }
   // ---- Flashcards: flip, swipe right = got it, left = not yet; missed cards come back until all are got ----
   var calmMotion = function () { return !Element.prototype.animate || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); };
@@ -633,7 +644,7 @@
     var qs = G.makeTypeQuestions(chosen, $('fDir').value, seed).map(function (q) { return { d: q.d, e: q.e, f: 1, dir: q.dir }; });
     round = { kind: 'flash', flat: false, wotwKey: null, qs: qs, answers: [], pts: 0, pos: 0, locked: false,
               fq: qs.map(function (_, i) { return i; }), fPos: 0, fMiss: [], retries: 0, flipped: false, missedFirst: 0 };
-    showPlay('quiz'); quizLayout(true); renderFlash();
+    showPlay('quiz'); quizLayout(true); $('quiz').classList.remove('battle'); renderFlash();
   }
   function renderFlash() {
     var q = round.qs[round.fq[round.fPos]], front = q.dir === 'en2nl' ? q.e : q.d, back = q.dir === 'en2nl' ? q.d : q.e, card = $('fCard');
@@ -751,11 +762,11 @@
         var txt = await ghGetRaw('dutch/' + opp.toLowerCase() + '.csv');
         if (txt === null) throw new Error(opp + ' has no list yet');
         var oppProg = new Map(); M.csvRecords(txt).forEach(function (r) { oppProg.set(T.keyOf(r.dutch, r.english), r); });
-        chosen = G.pickHandicap(words, progress, oppProg, today(), seed, G.ROUND);
-      } else chosen = G.pickNormal(words, seed, G.ROUND);
+        chosen = G.pickHandicap(words, progress, oppProg, today(), seed, G.RACES * G.RACE_Q);
+      } else chosen = G.pickNormal(words, seed, G.RACES * G.RACE_Q);
       msg.textContent = '';
-      startRound({ kind: 'challenge', flat: true, maxq: G.BATTLE_SECONDS, wager: wager, mode: mode, opp: opp, id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-                   qs: G.makeQuestions(chosen, words, seed) });
+      startRound({ kind: 'challenge', flat: true, bo3: true, maxq: G.BATTLE_SECONDS, wager: wager, mode: mode, opp: opp, id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                   qs: G.makeQuestions(chosen, words, seed).map(function (q, i) { return Object.assign(q, { r: Math.floor(i / G.RACE_Q) }); }) });
     } catch (e) { msg.className = 'err'; msg.textContent = "Couldn't start the battle (" + e.message + ').'; }
     $('btnChallenge').disabled = false;
   }
@@ -763,7 +774,7 @@
     if (s.b === '*') {                                   // an open challenge may have been taken since this screen was drawn
       try { await loadGame(); } catch (e) {}
       var fresh = G.battleStates(battleRows()).filter(function (x) { return x.id === s.id; })[0];
-      if (!fresh || fresh.done) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'Someone already played that challenge.'; renderBattles(); return; }
+      if (!fresh || fresh.done || (fresh.startedBy && fresh.startedBy !== who)) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'Someone already took that challenge.'; renderBattles(); return; }
     }
     var wager = stakeOf(s);
     if (wager > balanceOf(who)) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'You need ' + eur(wager) + ' to match that wager, and you have ' + eur(balanceOf(who)) + '.'; return; }
@@ -771,19 +782,30 @@
     if (!qs || !qs.length) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'That challenge has no questions. Ask ' + s.a + ' to send it again.'; return; }
     var legacy = !(typeof qs[0].p === 'number');       // a challenge sent before the timer existed: old scoring, no clock, an evenly rowing ghost
     var ghost = legacy ? qs.map(function () { return s.aScore / qs.length; }) : qs.map(function (q) { return q.p || 0; });
-    startRound({ kind: 'reply', flat: true, legacy: legacy, maxq: legacy ? G.MAXQ : G.BATTLE_SECONDS, ghost: ghost, wager: wager, target: s.aScore, mode: s.mode, opp: s.a, id: s.id, qs: qs });
+    var bo3 = !legacy && typeof qs[0].r === 'number';   // best of 3 races (challenges sent before this are one race)
+    // starting locks the battle to you: if you don't finish it (quit, app closed), it counts as a forfeit
+    battleQueue.push({ id: s.id, type: 'start', date: today(), who: who, opponent: s.a, mode: s.mode || 'normal', score: '', right: '', total: '', questions: '' }); store.set('battleQ', battleQueue);
+    store.set('live.' + who, { id: s.id, p: [] });
+    flushExtras();
+    startRound({ kind: 'reply', flat: true, bo3: bo3, legacy: legacy, maxq: legacy ? G.MAXQ : G.BATTLE_SECONDS, ghost: ghost, wager: wager, target: s.aScore, mode: s.mode, opp: s.a, id: s.id, qs: qs });
   }
 
   // The battle seen from above: the camera stays on your boat, the water and ropes slide past, the other boat is the ghost of the challenger's real pace.
-  var VS = 3, VC = 125, COLOR_ME = '#e8664a', COLOR_OPP = '#e0a82e';           // pixels per point, half the view height, default boat colours (to be customisable later)
+  var COLOR_ME = '#e8664a', COLOR_OPP = '#e0a82e';           // default boat colours (to be customisable later)
   function boatSvg(color, cls) {
     return '<svg class="bv-boat ' + cls + '" viewBox="0 0 60 100" aria-hidden="true"><path d="M30 4C40 22 40 72 30 96C20 72 20 22 30 4Z" fill="' + color + '" stroke="#1a1a1a" stroke-width="3"/><circle cx="30" cy="55" r="6" fill="#1a1a1a"/>' +
       '<g class="oL"><line x1="30" y1="52" x2="4" y2="58" stroke="#1a1a1a" stroke-width="3"/><rect x="0" y="55" width="8" height="12" fill="#f4e6c3" stroke="#1a1a1a" stroke-width="2"/></g>' +
       '<g class="oR"><line x1="30" y1="52" x2="56" y2="58" stroke="#1a1a1a" stroke-width="3"/><rect x="52" y="55" width="8" height="12" fill="#f4e6c3" stroke="#1a1a1a" stroke-width="2"/></g></svg>';
   }
+  function raceStart() { return round.bo3 ? Math.floor(round.pos / G.RACE_Q) * G.RACE_Q : 0; }
+  function raceLen() { return round.bo3 ? G.RACE_Q : round.qs.length; }
+  function sumPts(arr, from, to) { var s = 0; for (var i = from; i < to && i < arr.length; i++) s += arr[i] || 0; return s; }
+  function myPts() { return round.answers.map(function (a) { return a.pts; }); }
   function buildView() {
     var v = $('bView'), duel = !!round.ghost, myX = duel ? 29 : 50;
     v.textContent = '';
+    var H = v.clientHeight || 250, VC = Math.round(H / 2);
+    round.vh = H; round.vc = VC; round.vs = (VC + 40) / (raceLen() * round.maxq);   // the finish line starts just out of sight
     var t = document.createElement('div'); t.innerHTML = '<div class="bv-water"></div><div class="bv-bank l"></div><div class="bv-bank r"></div>' +
       '<div class="bv-rope" style="left:14px"></div><div class="bv-rope" style="left:calc(100% - 14px)"></div>' + (duel ? '<div class="bv-rope" style="left:50%"></div>' : '') +
       '<div class="bv-fin" style="top:-300px"></div><div class="bv-wake" style="left:' + myX + '%;top:' + (VC + 30) + 'px"></div>' +
@@ -791,24 +813,42 @@
     while (t.firstChild) v.appendChild(t.firstChild);
     var me = document.createElement('div'); me.className = 'bv-name'; me.style.left = myX + '%'; me.style.top = '6px'; me.textContent = 'You'; v.appendChild(me);
     if (duel) { var gn = document.createElement('div'); gn.className = 'bv-name bv-gn'; gn.style.left = '71%'; gn.style.top = (VC - 56) + 'px'; gn.textContent = round.opp; v.appendChild(gn); }
+    if (round.wager) {                                   // the money bag: the whole pot you are racing for
+      var bag = document.createElement('div'); bag.className = 'bv-bag'; bag.style.right = 'calc(' + (100 - myX) + '% + 30px)'; bag.style.top = VC + 'px';
+      bag.innerHTML = '<span aria-hidden="true">💰</span><b></b>'; bag.querySelector('b').textContent = eur(2 * round.wager); bag.setAttribute('aria-label', 'Playing for ' + eur(2 * round.wager)); v.appendChild(bag);
+    }
     round.viewBuilt = true;
   }
-  function ghostPos() { var n = round.answers.length, s = 0; for (var i = 0; i < n && i < round.ghost.length; i++) s += round.ghost[i]; return s; }
   function renderRace(stroke) {
     var box = $('qRace'); box.hidden = !(round && round.flat);
     if (box.hidden) return;
-    if (!round.viewBuilt) buildView();
-    var v = $('bView'), me = round.pts, gp = round.ghost ? ghostPos() : 0, track = round.qs.length * round.maxq;
-    Array.prototype.forEach.call(v.querySelectorAll('.bv-water, .bv-rope'), function (n) { n.style.setProperty('--bg', (me * VS) + 'px'); });
+    if (!round.viewBuilt || Math.abs($('bView').clientHeight - round.vh) > 4) buildView();
+    var v = $('bView'), a0 = raceStart(), n = round.answers.length, me = sumPts(myPts(), a0, n), gp = round.ghost ? sumPts(round.ghost, a0, n) : 0,
+        VS = round.vs, VC = round.vc, track = raceLen() * round.maxq;
+    Array.prototype.forEach.call(v.querySelectorAll('.bv-water, .bv-rope'), function (el) { el.style.setProperty('--bg', (me * VS) + 'px'); });
     v.querySelector('.bv-fin').style.top = (VC - (track - me) * VS - 16) + 'px';
     if (round.ghost) {
-      var gy = VC - (gp - me) * VS, g = v.querySelector('.bv-g'), gn = v.querySelector('.bv-gn'), off = gy < -40 || gy > 290;
+      var gy = VC - (gp - me) * VS, g = v.querySelector('.bv-g'), gn = v.querySelector('.bv-gn'), off = gy < -40 || gy > round.vh + 40;
       g.style.top = gy + 'px'; gn.style.top = (gy - 56) + 'px'; g.style.visibility = gn.style.visibility = off ? 'hidden' : 'visible';
     }
     if (stroke) { var boats = v.querySelectorAll('.bv-boat'); Array.prototype.forEach.call(boats, function (b) { b.classList.add('row'); setTimeout(function () { b.classList.remove('row'); }, 380); }); }
-    $('raceNote').textContent = round.wager
-      ? eur(2 * round.wager) + ' on the table (' + eur(round.wager) + ' each). ' + (round.target != null ? round.opp + ' scored ' + round.target + '. ' : 'The highest score takes it. ') + 'You ' + me + (round.ghost ? ' · ' + round.opp + ' ' + gp : '')
-      : (round.target != null ? round.opp + ' scored ' + round.target + '. ' : '') + 'You ' + me + (round.ghost ? ' · ' + round.opp + ' ' + gp : '') + '. Highest score wins.';
+  }
+  function popPts(pts, ghost) {                          // "+7" beside the rower, floating up and fading
+    var v = $('bView'), boat = v.querySelector(ghost ? '.bv-g' : '.bv-me');
+    if (!boat || boat.style.visibility === 'hidden') return;
+    var el = document.createElement('div'); el.className = 'bv-pts' + (ghost ? ' g' : '') + (pts ? '' : ' zero');
+    el.textContent = '+' + Math.round(pts); el.style.left = 'calc(' + boat.style.left + ' + 28px)'; el.style.top = (parseFloat(boat.style.top) - 30) + 'px';
+    v.appendChild(el); setTimeout(function () { el.remove(); }, 1100);
+  }
+  function revealRace(pts) {
+    if (!round.flat) return;
+    renderRace(true); popPts(pts, false);
+    if (round.ghost) popPts(round.ghost[round.answers.length - 1] || 0, true);
+    if (round.kind === 'reply') store.set('live.' + who, { id: round.id, p: myPts() });
+  }
+  function afterPause(ms) {                              // move on by itself: no Next button
+    var r = round; clearTimeout(r.after);
+    r.after = setTimeout(function () { if (round === r) nextQuestion(); }, ms);
   }
   // 10 seconds a question in a battle (not for older challenges): a right answer pays the seconds left
   function stopTimer() { if (round && round.tick) { clearInterval(round.tick); round.tick = null; } }
@@ -831,15 +871,18 @@
     round.answers.push({ ok: false, pts: 0, key: T.keyOf(q.d, q.e), timeout: true });
     Array.prototype.forEach.call($('qOpts').children, function (b, n) { b.disabled = true; if (q.o[n] === good) b.className = 'opt right'; });
     $('tFill').style.width = '0%'; $('tWorth').textContent = 'Time is up';
-    renderRace(false);
-    $('qFeedback').textContent = "Time is up. It is " + (q.a ? q.a : q.d + ' = ' + q.e); $('qFeedback').className = 'err';
-    $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
+    revealRace(0);
+    afterPause(PAUSE);
+  }
+  function infoText() {
+    if (round.bo3) return 'Race ' + (Math.floor(round.pos / G.RACE_Q) + 1) + ' · Q' + (round.pos % G.RACE_Q + 1) + '/' + G.RACE_Q;
+    if (round.flat) return 'Q' + (round.pos + 1) + '/' + round.qs.length;
+    return 'Q' + (round.pos + 1) + '/' + round.qs.length + ' · ' + eur(round.pts);
   }
   function renderQuestion() {
     var q = round.qs[round.pos]; round.locked = false; round.t0 = Date.now();
-    $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + scoreText() +
-      (round.opp ? ' · battle vs ' + oppName(round.opp) : '');
-    renderRace(false); startTimer();
+    $('quiz').dataset.q = String(round.pos);             // which question is showing (also a handle for the tests)
+    $('qInfo').textContent = infoText();
     var typed = !!q.t;
     $('qOpts').hidden = typed; $('qTypeBox').hidden = !typed;
     if (typed) {
@@ -849,35 +892,39 @@
       $('qCheck').hidden = false; $('qShow').hidden = false;
       setTimeout(function () { if (round && !round.locked) inp.focus(); }, 50);
     } else $('qWord').textContent = q.d;
-    $('qPrompt').hidden = !q.p; $('qPrompt').textContent = q.p || '';
+    var prompt = typeof q.p === 'string' ? q.p : '';    // in battle rows p is the points scored, not a prompt
+    $('qPrompt').hidden = !prompt; $('qPrompt').textContent = prompt;
     $('qStar').hidden = !(round.wotwKey && round.wotwKey === T.keyOf(q.d, q.e));
     var box = $('qOpts'); box.textContent = '';
     if (!typed) q.o.forEach(function (o, i) {
       box.appendChild(h('button', { type: 'button', class: 'opt', onclick: function () { answer(i); } }, h('b', { text: String(i + 1) }), h('span', { text: o })));
     });
-    $('qFeedback').textContent = ''; $('qNext').hidden = true; $('qFlag').hidden = true;
+    $('qFeedback').textContent = ''; $('qFeedback').className = 'fb';
+    renderRace(false); startTimer();                     // after the answers are in place, so the boat view knows its real height
   }
   function answer(i) {
-    if (!round || round.locked) return;
+    if (!round || round.locked || round.kind === 'flash') return;
+    var q = round.qs[round.pos];
+    if (q.t || !q.o || i >= q.o.length) return;
     round.locked = true;
-    var q = round.qs[round.pos], k = T.keyOf(q.d, q.e), good = q.a || q.e, ok = q.o[i] === good, ms = Date.now() - round.t0, t0 = today();
+    var k = T.keyOf(q.d, q.e), good = q.a || q.e, ok = q.o[i] === good, ms = Date.now() - round.t0, t0 = today();
     var lv = T.levelOf(progress.get(k), t0), pts = ok ? (round.flat && !round.legacy ? G.battlePoints(ms) : G.questionPoints(lv, ms, round.flat)) : 0;
     stopTimer();
     round.answers.push({ ok: ok, pts: pts, key: k }); round.pts += pts;
     var row = progress.get(k) || blankRow({ dutch: q.d, english: q.e }), fields = G.applyAnswer(row, ok, t0);
     pending[k] = { dutch: q.d, english: q.e, kind: 'answer', fields: fields }; store.set('pending.' + who, pending);
     Object.assign(row, fields); progress.set(k, row);
-    Array.prototype.forEach.call($('qOpts').children, function (b, n) {
-      b.disabled = true;
-      if (q.o[n] === good) b.className = 'opt right'; else if (n === i) b.className = 'opt wrong';
-    });
-    $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + scoreText() +
-      (round.opp ? ' · battle vs ' + oppName(round.opp) : '');
-    renderRace(true);
-    $('tWorth').textContent = ok ? '+' + pts : '';
-    $('qFeedback').textContent = ok ? 'Right! +' + (round.flat ? pts : eur(pts)) : 'Not quite. ' + (q.a ? q.a : q.d + ' = ' + q.e);
-    $('qFeedback').className = ok ? 'ok' : 'err';
-    $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
+    var btns = $('qOpts').children, r = round;
+    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+    btns[i].className = 'opt picked';                    // your pick lights up first, then the right answer (like The Chase)
+    setTimeout(function () {
+      if (round !== r) return;
+      Array.prototype.forEach.call(btns, function (b, n) { if (q.o[n] === good) b.className = 'opt right'; else if (n === i) b.className = 'opt wrong'; });
+      $('qInfo').textContent = infoText(); $('quiz').dataset.last = String(pts);
+      if (round.flat) { $('tWorth').textContent = ''; revealRace(pts); }
+      else { $('qFeedback').textContent = ok ? 'Right! +' + eur(pts) : 'Not quite. ' + (q.a ? q.a : q.d + ' = ' + q.e); $('qFeedback').className = 'fb ' + (ok ? 'ok' : 'err'); }
+    }, REVEAL);
+    afterPause(PAUSE);
     updateCounts();
   }
   function answerTyped(giveUp) {
@@ -897,20 +944,88 @@
       fb = ok ? 'Right! +' + eur(pts) + (answerText.toLowerCase() === text.trim().toLowerCase() ? '' : ' (' + answerText + ')') : 'Not quite. It is ' + answerText + '.'; cls = ok ? 'ok' : 'err';
     } else if (res.result === 'almost') { fb = res.note + ' Not counted either way.'; cls = 'muted'; }
     else { fb = 'It is ' + answerText + '. Not counted.'; cls = 'muted'; }
-    $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + eur(round.pts);
+    $('qInfo').textContent = infoText();
     $('qFeedback').textContent = fb; $('qFeedback').className = 'fb ' + cls;
-    $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
+    afterPause(TYPE_PAUSE);                              // a little longer than a tap, so the spelling can be read
     updateCounts();
   }
   function nextQuestion() {
     if (!round || !round.locked) return;
-    round.locked = false;
+    clearTimeout(round.after);
     round.pos++;
-    if (round.pos >= round.qs.length) finishRound(); else renderQuestion();
+    if (round.pos >= round.qs.length) { finishRound(); return; }
+    if (round.bo3 && round.pos % G.RACE_Q === 0) { raceBreak(); return; }
+    renderQuestion();
   }
-  function quitRound() { stopTimer(); round = null; showPlay('home'); $('roundMsg').textContent = 'Round stopped, nothing banked. (Answers you gave still updated your word list.)'; if (pendingList().length && token) save(); }
+  function raceBreak() {                                 // between races: who won that one, then on to the next (or the end if it is settled)
+    var r = round, done = r.pos / G.RACE_Q, title, sub, decided = false;
+    if (r.ghost) {
+      var res = G.bestOf3(r.ghost, myPts(), r.qs.map(function (q) { return q.r; })), last = res.races[done - 1];
+      title = last.b > last.a ? 'You won race ' + done : last.a > last.b ? r.opp + ' won race ' + done : 'Race ' + done + ' is a tie';
+      sub = last.b + ' – ' + last.a + ' · races: you ' + res.bWins + ' – ' + res.aWins + ' ' + r.opp;
+      decided = res.aWins >= 2 || res.bWins >= 2;
+      if (decided) sub += '. That settles it.';
+    } else { title = 'Race ' + done + ' done'; sub = 'You scored ' + sumPts(myPts(), r.pos - G.RACE_Q, r.pos) + '. Race ' + (done + 1) + ' next.'; }
+    $('rbTitle').textContent = title; $('rbSub').textContent = sub; $('rbGo').textContent = decided ? 'See the result' : 'Next race →';
+    $('raceBreak').hidden = false;
+    var fired = false;
+    function go() {
+      if (fired || round !== r) return; fired = true; clearTimeout(r.after); $('raceBreak').hidden = true;
+      if (decided) finishRound(); else { r.viewBuilt = false; renderQuestion(); }
+    }
+    $('rbGo').onclick = go; r.after = setTimeout(go, BREAK);
+  }
+  function forfeitReply(s, p) {                          // quitting (or not finishing) a reply: the challenger wins
+    p = p || [];
+    var w = stakeOf(s), pts = p.reduce(function (n, x) { return n + (x || 0); }, 0);
+    battleQueue.push({ id: s.id, type: 'reply', date: today(), who: who, opponent: s.a, mode: s.mode || 'normal', score: String(pts),
+                       right: String(p.filter(function (x) { return x > 0; }).length), total: String(p.length), questions: JSON.stringify({ p: p, forfeit: true }) });
+    store.set('battleQ', battleQueue);
+    if (w) { scoreQueue.push(wagerRow(s.id, 's', who, -w, 'wager'), wagerRow(s.id, 'p', s.a, 2 * w, 'wager-win')); store.set('scoreQ', scoreQueue); }
+    store.set('live.' + who, null);
+    return w;
+  }
+  function checkAbandoned() {                            // a reply you started and never finished (app closed, phone died) counts as a forfeit
+    var any = false;
+    G.battleStates(battleRows()).forEach(function (s) {
+      if (s.done || s.startedBy !== who || (round && round.id === s.id)) return;
+      var live = store.get('live.' + who, null);
+      forfeitReply(s, live && live.id === s.id ? live.p : []); any = true;
+      $('battleMsg').className = 'err'; $('battleMsg').textContent = 'You started the battle from ' + s.a + " and didn't finish it, so it counts as a forfeit.";
+    });
+    if (any) flushExtras();
+    return any;
+  }
+  function askQuit() {
+    if (!round) return;
+    $('quitText').textContent = round.kind === 'reply' ? (round.wager ? 'Quit battle and forfeit ' + eur(round.wager) + '? ' + round.opp + ' takes the pot.' : 'Quit battle? It counts as a loss.')
+      : round.kind === 'challenge' ? 'Quit? Nothing is sent and you keep your money.' : "Quit? This round's money is lost.";
+    $('quitBox').hidden = false;
+  }
+  function doQuit() {
+    $('quitBox').hidden = true;
+    if (!round) return;
+    stopTimer(); clearTimeout(round.after);
+    if (round.kind === 'reply') {
+      var s = G.battleStates(battleRows()).filter(function (x) { return x.id === round.id; })[0] || { id: round.id, a: round.opp, mode: round.mode };
+      var w = forfeitReply(s, myPts()), opp = round.opp;
+      round = null;
+      $('qSummary').textContent = '';
+      $('qSummary').appendChild(h('p', { text: 'You quit, so ' + opp + ' wins' + (w ? ' the pot (' + eur(2 * w) + '). You lose your ' + eur(w) + '.' : '.') }));
+      showPlay('end'); if (token && pendingList().length) save(); flushExtras(); renderGame();
+      return;
+    }
+    quitRound(round.kind === 'challenge' ? 'Battle stopped. Nothing was sent and you keep your money.' : null);
+  }
+  function quitRound(msg) { stopTimer(); if (round) clearTimeout(round.after); round = null; showPlay('home'); $('roundMsg').textContent = msg || 'Round stopped, nothing banked. (Answers you gave still updated your word list.)'; if (pendingList().length && token) save(); }
+  function battleResult(s) {                             // the result from your side, e.g. "2 – 1 in races" or "84 – 70"
+    var meA = s.a === who;
+    if (s.bo3) return (meA ? s.bo3.aWins : s.bo3.bWins) + ' – ' + (meA ? s.bo3.bWins : s.bo3.aWins) + ' in races' + (s.bo3.aWins === s.bo3.bWins && s.winner !== 'draw' ? ', more points overall' : '');
+    return (meA ? s.aScore : s.bScore) + ' – ' + (meA ? s.bScore : s.aScore);
+  }
   function finishRound() {
-    stopTimer();
+    stopTimer(); clearTimeout(round.after);
+    if (round.kind === 'reply') store.set('live.' + who, null);
     var t0 = today(), dates = myDates(), flat = !!round.flat, newDay = dates.indexOf(t0) < 0;
     var streak = G.streakDays(dates.concat([t0]), t0);
     var wotwHit = !!round.wotwKey && round.answers.some(function (a) { return a.key === round.wotwKey && a.ok; });
@@ -928,7 +1043,7 @@
     if (round.kind === 'flash' && round.missedFirst) lines.push('You went back over ' + round.missedFirst + ' missed ' + (round.missedFirst === 1 ? 'card' : 'cards') + ' until you got them all. Retries earn nothing.');
     if (flat) {
       battleQueue.push({ id: round.id, type: round.kind === 'challenge' ? 'challenge' : 'reply', date: t0, who: who, opponent: round.opp, mode: round.mode || 'normal',
-                         score: String(res.points), right: String(res.right), total: String(res.total), questions: round.kind === 'challenge' ? JSON.stringify(round.qs.map(function (q, i) { return Object.assign({}, q, { p: round.answers[i] ? round.answers[i].pts : 0 }); })) : '' });
+                         score: String(res.points), right: String(res.right), total: String(res.total), questions: round.kind === 'challenge' ? JSON.stringify(round.qs.map(function (q, i) { return Object.assign({}, q, { p: round.answers[i] ? round.answers[i].pts : 0 }); })) : JSON.stringify({ p: myPts() }) });
       store.set('battleQ', battleQueue);
       if (round.kind === 'challenge') {
         lines.push(round.opp === '*' ? 'Open challenge sent. The first person to play it takes the wager.' : 'Challenge sent to ' + round.opp + '. They will see it the next time they open the app.');
@@ -943,12 +1058,19 @@
           else rows.push(wagerRow(round.id, 'p', s.winner, pot, 'wager-win'));
           rows.forEach(function (r) { scoreQueue.push(r); }); store.set('scoreQ', scoreQueue);
           lines.push(s.winner === 'draw' ? 'It is a draw with ' + round.opp + '! Both wagers (' + eur(w) + ') go back.'
-            : s.winner === who ? 'You beat ' + round.opp + '! ' + s.bScore + ' – ' + s.aScore + '. You win the pot: ' + eur(pot) + ' (+' + eur(w) + ' on your wager).'
-            : round.opp + ' won this one, ' + s.aScore + ' – ' + s.bScore + '. You lose your ' + eur(w) + '.');
-        } else if (s && s.done) lines.push(s.winner === 'draw' ? 'It is a draw with ' + round.opp + '!' : (s.winner === who ? 'You beat ' + round.opp + '! ' : round.opp + ' won this one. ') + s.aScore + ' – ' + s.bScore);
+            : s.winner === who ? 'You beat ' + round.opp + '! ' + battleResult(s) + '. You win the pot: ' + eur(pot) + ' (+' + eur(w) + ' on your wager).'
+            : round.opp + ' won this one, ' + battleResult(s) + '. You lose your ' + eur(w) + '.');
+        } else if (s && s.done) lines.push(s.winner === 'draw' ? 'It is a draw with ' + round.opp + '!' : (s.winner === who ? 'You beat ' + round.opp + '! ' : round.opp + ' won this one. ') + battleResult(s));
       }
     }
     $('qSummary').textContent = ''; lines.forEach(function (l) { $('qSummary').appendChild(h('p', { text: l })); });
+    var seen = {}, list = h('div', { class: 'flaglist' });   // flagging lives here now, so the game screen never needs scrolling
+    round.qs.slice(0, round.kind === 'flash' ? round.qs.length : round.answers.length).forEach(function (q) {
+      var k = q.d + '|' + q.e; if (seen[k]) return; seen[k] = 1;
+      list.appendChild(h('div', { class: 'brow' }, h('span', { class: 'grow', text: q.d + ' = ' + q.e }),
+        h('button', { class: 'btn small', type: 'button', 'aria-label': 'Flag a problem with ' + q.d, text: '⚑', onclick: function () { openFlag({ dutch: q.d, english: q.e }); } })));
+    });
+    if (list.children.length) { $('qSummary').appendChild(h('h3', { text: 'Words in this round (⚑ to flag a problem)' })); $('qSummary').appendChild(list); }
     round = null; showPlay('end');
     if (token) save();
     flushExtras(); renderGame();
@@ -1057,12 +1179,12 @@
   $('btnChallenge').addEventListener('click', startBattle);
   $('bMinus').addEventListener('click', function () { setWager(Number($('bWager').value) - 10); });
   $('bPlus').addEventListener('click', function () { setWager(Number($('bWager').value) + 10); });
-  $('qNext').addEventListener('click', nextQuestion);
-  $('qQuit').addEventListener('click', quitRound);
+  $('qQuit').addEventListener('click', askQuit);
+  $('quitNo').addEventListener('click', function () { $('quitBox').hidden = true; });
+  $('quitYes').addEventListener('click', doQuit);
   $('btnFlash').addEventListener('click', startFlash);
   $('fYes').addEventListener('click', function () { flashJudge(true); });
   $('fNo').addEventListener('click', function () { flashJudge(false); });
-  $('qFlag').addEventListener('click', function () { if (round) openFlag({ dutch: round.qs[round.pos].d, english: round.qs[round.pos].e }); });
   $('qDone').addEventListener('click', function () { showPlay('home'); });
   $('btnBoardRefresh').addEventListener('click', loadGame);
   $('flagForm').addEventListener('submit', onFlagSubmit);
@@ -1092,6 +1214,7 @@
   document.addEventListener('keydown', function (ev) {
     var tg = ev.target && ev.target.tagName;
     if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT' || $('settings').open || $('flagDlg').open) return;
+    if (!$('tabPlay').hidden && round && ev.key === 'Escape') { ev.preventDefault(); if ($('quitBox').hidden) askQuit(); else $('quitBox').hidden = true; return; }
     if (!$('tabPlay').hidden && round && round.kind === 'flash') {
       if (ev.key === ' ' || ev.key === 'Enter' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown') { ev.preventDefault(); flashFlip(); }
       else if (ev.key === 'ArrowRight') { ev.preventDefault(); flashJudge(true); }
@@ -1099,8 +1222,7 @@
       return;
     }
     if (!$('tabPlay').hidden && round) {
-      if (/^[1-4]$/.test(ev.key)) answer(Number(ev.key) - 1);
-      else if ((ev.key === 'Enter' || ev.key === ' ') && tg !== 'BUTTON') { ev.preventDefault(); nextQuestion(); }
+      if (/^[1-4]$/.test(ev.key) && $('quitBox').hidden) answer(Number(ev.key) - 1);
       return;
     }
     if (!$('sortSheet').open) return;

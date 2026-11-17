@@ -28,7 +28,7 @@ async function newPhone(browser, opts = {}) {
   await page.setViewport({ width: 400, height: 900 });
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error' && !/status of (404|409|422)|ERR_FAILED/.test(m.text())) errors.push(m.text()); });
-  await page.evaluateOnNewDocument(five => { if (!localStorage.getItem('dr.token')) { localStorage.setItem('dr.token', '"fake-token"'); localStorage.setItem('dr.who', '"Noah"'); if (five) localStorage.setItem('dr.showFive', 'true'); } }, opts.five !== false);
+  await page.evaluateOnNewDocument(five => { if (!localStorage.getItem('dr.token')) { localStorage.setItem('dr.token', '"fake-token"'); localStorage.setItem('dr.who', '"Noah"'); if (five) localStorage.setItem('dr.showFive', 'true'); localStorage.setItem('dr.pause', '150'); } }, opts.five !== false);
   // The sorting screen is a sheet on the Home tab. These wrappers open it when a step needs it and close it when a step
   // needs something behind it, the way a person would, so the older steps below read the same as before.
   const oClick = page.click.bind(page), oSelect = page.select.bind(page), oPress = page.keyboard.press.bind(page.keyboard);
@@ -307,19 +307,24 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   const eng = {}; wordsT.forEach(w => (eng[w.dutch] = eng[w.dutch] || []).push(w.english));
   const until = async (fn, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await new Promise(r => setTimeout(r, 100)); } return false; };
   const rowsOf = f => files[f] ? M.csvRecords(files[f].text) : [];
-  async function play(page, chooser, from = 0) { // chooser(i) -> 'right' | 'wrong'; from = first question number (0-based) to answer
+  async function play(page, chooser, from = 0) { // chooser(i) -> 'right' | 'wrong'; from = first question number (0-based) to answer; goes on until the round ends
     const log = [];
-    for (let i = from; i < 10; i++) {
-      await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
+    for (let i = from; ; i++) {
+      const st = await (await page.waitForFunction(n => {
+        if (!document.getElementById('quizEnd').hidden) return 'end';
+        if (!document.getElementById('raceBreak').hidden) return 'break';
+        return document.getElementById('quiz').dataset.q === String(n) ? 'q' : false;
+      }, { timeout: 15000, polling: 30 }, i)).jsonValue();
+      if (st === 'end') break;
+      if (st === 'break') { log.breaks = (log.breaks || []).concat([await txt(page, '#rbTitle') + ' | ' + await txt(page, '#rbSub')]); await page.click('#rbGo'); i--; continue; }
       const dutch = await txt(page, '#qWord'), opts = await page.$$eval('#qOpts .opt span', e => e.map(x => x.textContent));
       const star = await page.$eval('#qStar', e => !e.hidden), good = o => (eng[dutch] || []).includes(o);
       const want = chooser(i), idx = opts.findIndex(o => want === 'right' ? good(o) : !good(o));
       await page.click('#qOpts .opt:nth-child(' + (idx + 1) + ')');
-      const fb = await txt(page, '#qFeedback');
-      log.push({ dutch, opts, star, want, fb, pts: Number((fb.match(/\+\u20ac?(\d+)/) || [0, 0])[1]) });
-      await page.click('#qNext');
+      await page.waitForFunction(() => !!document.querySelector('#qOpts .opt.right'), { timeout: 5000, polling: 10 });
+      const fb = await txt(page, '#qFeedback'), pts = await page.$eval('#quiz', e => Number(e.dataset.last));
+      log.push({ dutch, opts, star, want, fb, pts });
     }
-    await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
     return log;
   }
   const sumPts = log => log.reduce((a, l) => a + l.pts, 0);
@@ -386,10 +391,12 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(/Challenge sent to Anna/.test(await txt(page, '#qSummary')), 'summary: ' + (await txt(page, '#qSummary')));
   ok(await until(() => rowsOf('dutch/battles.csv').length === 1), 'challenge row sent');
   let br = rowsOf('dutch/battles.csv');
-  ok(br[0].type === 'challenge' && br[0].who === 'Noah' && br[0].opponent === 'Anna' && br[0].mode === 'normal' && br[0].total === '10' && br[0].right === '10', 'challenge row ok');
+  ok(br[0].type === 'challenge' && br[0].who === 'Noah' && br[0].opponent === 'Anna' && br[0].mode === 'normal' && br[0].total === '15' && br[0].right === '15', 'challenge row ok: best of 3 races of 5 = 15 questions');
+  ok(nlog.breaks && nlog.breaks.length === 2 && /Race 1 done/.test(nlog.breaks[0]), 'the challenger gets a short break after races 1 and 2: ' + JSON.stringify(nlog.breaks));
   const qsStored = JSON.parse(br[0].questions);
-  ok(qsStored.length === 10 && qsStored.every((q, i) => q.d === nlog[i].dutch && JSON.stringify(q.o) === JSON.stringify(nlog[i].opts)), 'the questions are stored exactly as Noah saw them');
-  ok(Number(br[0].score) === sumPts(nlog) && sumPts(nlog) >= 80 && sumPts(nlog) <= 100, 'battle score: ten questions, up to 10 for each (seconds left): ' + br[0].score);
+  ok(qsStored.every((q, i) => q.r === Math.floor(i / 5)), 'each question says which race it belongs to');
+  ok(qsStored.length === 15 && qsStored.every((q, i) => q.d === nlog[i].dutch && JSON.stringify(q.o) === JSON.stringify(nlog[i].opts)), 'the questions are stored exactly as Noah saw them');
+  ok(Number(br[0].score) === sumPts(nlog) && sumPts(nlog) >= 120 && sumPts(nlog) <= 150, 'battle score: fifteen questions, up to 10 for each (seconds left): ' + br[0].score);
   ok(qsStored.every((q, i) => q.p === nlog[i].pts), 'each question stores the points Noah got, so the ghost can row at his pace: ' + JSON.stringify(qsStored.map(q => q.p)));
   ok(await until(() => rowsOf('dutch/scores.csv').length === 5), 'battle row and stake row sent');
   const sc5 = rowsOf('dutch/scores.csv'), stakeRow = sc5.find(r => r.mode === 'wager');
@@ -409,16 +416,19 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(/Noah challenged you \(normal.*\u20ac40 each, \u20ac80 to the winner/.test(await txt(page, '#battleLists')), 'Anna sees the challenge and the wager: ' + (await txt(page, '#battleLists')).slice(0, 120));
   const annaBefore = files['dutch/anna.csv'].text;
   await page.click('#battleLists .brow button');
-  const alog = await play(page, i => i < 5 ? 'right' : 'wrong');
+  ok(await until(() => rowsOf('dutch/battles.csv').some(r => r.type === 'start' && r.who === 'Anna')), 'starting the reply locks the battle to Anna (a start row)');
+  const alog = await play(page, () => 'wrong');
+  ok(alog.length === 10 && alog.breaks.length === 2 && /settles it/.test(alog.breaks[1]), 'Noah wins races 1 and 2, so race 3 is skipped: ' + JSON.stringify(alog.breaks));
   ok(alog.every((l, i) => l.dutch === nlog[i].dutch && JSON.stringify(l.opts) === JSON.stringify(nlog[i].opts)), 'Anna got the same words and the same options in the same order');
   ok(/Noah won this one/.test(await txt(page, '#qSummary')) && /You lose your \u20ac40/.test(await txt(page, '#qSummary')), 'result shown: ' + (await txt(page, '#qSummary')));
   ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.mode === 'wager-win')), 'payout sent');
   const wsc = rowsOf('dutch/scores.csv');
   ok(wsc.some(r => r.mode === 'wager' && r.who === 'Anna' && r.points === '-40') && wsc.some(r => r.mode === 'wager-win' && r.who === 'Noah' && r.points === '80'), 'Anna staked 40 and Noah was paid 80');
   ok(wsc.filter(r => r.mode === 'battle').every(r => r.points === '0'), 'both battle rounds paid no ordinary points');
-  ok(await until(() => rowsOf('dutch/battles.csv').length === 2), 'reply row sent');
+  ok(await until(() => rowsOf('dutch/battles.csv').length === 3), 'reply row sent');
   br = rowsOf('dutch/battles.csv');
-  ok(br[1].type === 'reply' && br[1].who === 'Anna' && br[1].opponent === 'Noah' && br[1].id === br[0].id && br[1].right === '5' && br[1].questions === '', 'reply row ok');
+  ok(br[2].type === 'reply' && br[2].who === 'Anna' && br[2].opponent === 'Noah' && br[2].id === br[0].id && br[2].right === '0' && br[2].total === '10' && JSON.stringify(JSON.parse(br[2].questions).p) === JSON.stringify(alog.map(l => l.pts)), 'reply row ok, with her points per question: ' + br[2].questions);
+  ok(/Noah won this one, 0 – 2 in races/.test(await txt(page, '#qSummary')), 'the result is told in races');
   ok(await until(async () => files['dutch/anna.csv'].text !== annaBefore) && lastPut('dutch/anna.csv').message.includes('(Anna)'), 'Anna\'s answers saved to anna.csv: ' + lastPut('dutch/anna.csv').message);
   ok(diffLines(annaBefore, files['dutch/anna.csv'].text).length === 10, 'ten lines of anna.csv changed, none of Noah\'s');
   await page.click('#qDone');
@@ -438,9 +448,9 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.select('#bOpp', 'Anna'); await page.select('#bMode', 'handicap');
   await page.click('#btnChallenge');
   await play(page, () => 'right');
-  ok(await until(() => rowsOf('dutch/battles.csv').length === 3), 'handicap challenge sent');
-  const hq = JSON.parse(rowsOf('dutch/battles.csv')[2].questions), hrow = rowsOf('dutch/battles.csv')[2];
-  ok(hrow.mode === 'handicap' && hq.length === 10, 'row says handicap');
+  ok(await until(() => rowsOf('dutch/battles.csv').length === 4), 'handicap challenge sent');
+  const hq = JSON.parse(rowsOf('dutch/battles.csv')[3].questions), hrow = rowsOf('dutch/battles.csv')[3];
+  ok(hrow.mode === 'handicap' && hq.length === 15, 'row says handicap');
   const lvl = (P, q) => { const l = T.levelOf(P.get(T.keyOf(q.d, q.e)), today); return l === null ? 0 : l; };
   ok(hq.every(q => lvl(nP, q) === 0 && lvl(aP, q) === 0), 'every handicap word is new to both players');
   const wordLevel = d => (wordsT.find(w => w.dutch === d) || {}).level;
@@ -476,20 +486,24 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.select('#bMode', 'normal');
   const battlesBefore = rowsOf('dutch/battles.csv').length;
   await page.click('#btnChallenge');
-  await page.waitForFunction(() => /Question 1 of/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
   const solo = await page.evaluate(() => ({ ropes: document.querySelectorAll('#bView .bv-rope').length, boats: document.querySelectorAll('#bView .bv-boat').length, mx: document.querySelector('#bView .bv-me').style.left, timer: !document.getElementById('bTimer').hidden }));
   ok(solo.ropes === 2 && solo.boats === 1 && solo.mx === '50%' && solo.timer, 'the challenger rows alone in one full-width lane with a clock: ' + JSON.stringify(solo));
-  if (process.env.SHOT) { await page.click('#qOpts .opt:nth-child(1)'); await new Promise(r => setTimeout(r, 1200)); await (await page.$('#quiz')).screenshot({ path: '/tmp/shot_solo.png' }); }
-  await new Promise(r => setTimeout(r, 10700));
-  ok(/Time is up/.test(await txt(page, '#qFeedback')) && /Time is up/.test(await txt(page, '#tWorth')) && !(await page.$eval('#qNext', e => e.hidden)), 'after 10 seconds the question is over and shows the answer: ' + await txt(page, '#qFeedback'));
-  await page.click('#qNext');
+  const full = await page.evaluate(() => ({ header: getComputedStyle(document.querySelector('header')).display, nav: getComputedStyle(document.querySelector('nav')).display, pos: getComputedStyle(document.getElementById('quiz')).position,
+    scroll: document.getElementById('quiz').scrollHeight <= document.getElementById('quiz').clientHeight + 1, last: document.querySelector('#qOpts .opt:last-child').getBoundingClientRect().bottom <= innerHeight, qinfo: document.getElementById('qInfo').textContent, x: document.getElementById('qQuit').textContent }));
+  ok(full.header === 'none' && full.nav === 'none' && full.pos === 'fixed' && full.scroll && full.last && full.x === '✕', 'the battle covers the whole screen, no tabs, nothing to scroll, an ✕ to quit: ' + JSON.stringify(full));
+  ok(full.qinfo === 'Race 1 · Q1/5', 'the top line is just the race and question: ' + full.qinfo);
+  await page.waitForFunction(() => /Time is up/.test(document.getElementById('tWorth').textContent) && !!document.querySelector('#qOpts .opt.right'), { timeout: 12000, polling: 10 });
+  ok(true, 'after 10 seconds the question is over and shows the right answer');
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '1', { timeout: 3000 });
+  ok(true, 'and moves on by itself, no Next button');
   await play(page, () => 'right', 1);
   ok(/Open challenge sent/.test(await txt(page, '#qSummary')) && /You put \u20ac20 on it/.test(await txt(page, '#qSummary')), 'open challenge sent with a 20 point wager: ' + await txt(page, '#qSummary'));
   ok(await until(() => rowsOf('dutch/battles.csv').length === battlesBefore + 1), 'open challenge row sent');
   const open1 = rowsOf('dutch/battles.csv')[battlesBefore];
   ok(open1.opponent === '*' && open1.who === 'Noah', 'the opponent is "anyone"');
   const o1q = JSON.parse(open1.questions);
-  ok(o1q[0].p === 0 && o1q.slice(1).every(q => q.p >= 1 && q.p <= 10) && Number(open1.score) === o1q.reduce((n, q) => n + q.p, 0) && open1.total === '10' && open1.right === '9', 'the timed-out question is worth 0 and counts as a miss; the rest pay the seconds left: ' + JSON.stringify(o1q.map(q => q.p)));
+  ok(o1q[0].p === 0 && o1q.slice(1).every(q => q.p >= 1 && q.p <= 10) && Number(open1.score) === o1q.reduce((n, q) => n + q.p, 0) && open1.total === '15' && open1.right === '14', 'the timed-out question is worth 0 and counts as a miss; the rest pay the seconds left: ' + JSON.stringify(o1q.map(q => q.p)));
   ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.id === 'w' + open1.id + 'sNoah' && r.points === '-20')), 'stake of 20 saved');
   await page.click('#qDone');
   ok(/You vs anyone.*\u20ac20 at stake/.test(await txt(page, '#battleLists')), 'Noah sees it waiting: ' + await txt(page, '#battleLists'));
@@ -514,17 +528,17 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok((await page.$$('#battleLists .brow button')).length === 3 && /\u20ac10 each, \u20ac20 to the winner \u00b7 first to play it takes it/.test(await txt(page, '#battleLists')), 'Anna sees both open challenges and the named handicap one: ' + await txt(page, '#battleLists'));
   files['dutch/battles.csv'].text += 'bRACE,reply,2026-11-17,Sam,Noah,normal,50,5,10,\n';     // Sam got there first
   await page.evaluate(() => [...document.querySelectorAll('#battleLists .brow')].find(r => /\u20ac10 each/.test(r.textContent)).querySelector('button').click());
-  await until(async () => /already played/.test(await bMsg()));
-  ok(/Someone already played that challenge/.test(await bMsg()) && await page.$eval('#quiz', e => e.hidden), 'an open challenge taken meanwhile cannot be played again: ' + await bMsg());
+  await until(async () => /already took/.test(await bMsg()));
+  ok(/Someone already took that challenge/.test(await bMsg()) && await page.$eval('#quiz', e => e.hidden), 'an open challenge taken meanwhile cannot be played again: ' + await bMsg());
   ok(!/\u20ac10 each/.test(await txt(page, '#battleLists')), 'and it leaves her list');
   await page.evaluate(() => [...document.querySelectorAll('#battleLists .brow')].find(r => /\u20ac20 each/.test(r.textContent)).querySelector('button').click());
-  await page.waitForFunction(() => /Question 1 of/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
-  ok(await page.$eval('#qRace', e => !e.hidden) && /\u20ac40 on the table \(\u20ac20 each\)\. Noah scored \d+/.test(await txt(page, '#raceNote')), 'the challengee sees the pot and the score to beat: ' + await txt(page, '#raceNote'));
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
+  ok(await page.$eval('#qRace', e => !e.hidden) && /^\u{1F4B0}\s*\u20ac40$/u.test(await txt(page, '#bView .bv-bag')), 'a money bag beside your boat shows the pot: ' + await txt(page, '#bView .bv-bag'));
   const vw = await page.evaluate(() => ({ ropes: document.querySelectorAll('#bView .bv-rope').length, boats: document.querySelectorAll('#bView .bv-boat').length, ghost: !!document.querySelector('#bView .bv-g'), fin: !!document.querySelector('#bView .bv-fin'), timer: !document.getElementById('bTimer').hidden, gx: document.querySelector('#bView .bv-g').style.left, mx: document.querySelector('#bView .bv-me').style.left }));
-  if (process.env.SHOT) { await page.click('#qOpts .opt:nth-child(1)'); await new Promise(r => setTimeout(r, 1200)); await (await page.$('#quiz')).screenshot({ path: '/tmp/shot_duel.png' }); }
   ok(vw.ropes === 3 && vw.boats === 2 && vw.ghost && vw.fin && vw.timer && vw.mx === '29%' && vw.gx === '71%', 'two lanes seen from above: ropes between and beside them, your boat left, the ghost right, a finish line, a clock: ' + JSON.stringify(vw));
   ok(/Noah/.test(await txt(page, '#bView')) && /10/.test(await txt(page, '#tWorth')) || /Worth \d+ now/.test(await txt(page, '#tWorth')), 'the clock shows what a right answer is worth now: ' + await txt(page, '#tWorth'));
   const olog = await play(page, i => i < 3 ? 'right' : 'wrong');
+  ok(olog.length === 10, 'settled 2 – 0 after two races: ' + JSON.stringify(olog.breaks));
   ok(/Noah won this one/.test(await txt(page, '#qSummary')) && /You lose your \u20ac20/.test(await txt(page, '#qSummary')), 'Anna played the open wager and lost it: ' + await txt(page, '#qSummary'));
   ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.id === 'w' + open1.id + 'pNoah' && r.points === '40' && r.mode === 'wager-win')), 'Noah was paid the pot of 40');
   ok(rowsOf('dutch/scores.csv').some(r => r.id === 'w' + open1.id + 'sAnna' && r.points === '-20'), 'Anna staked 20');
@@ -540,7 +554,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await ctx.close();
 
   console.log('\n=== A challenge sent before the timer existed still plays (old scoring, no clock, even ghost) ===');
-  const oldQs = JSON.stringify(JSON.parse(open1.questions).map(q => { const o = Object.assign({}, q); delete o.p; return o; })).replace(/"/g, '""');
+  const oldQs = JSON.stringify(JSON.parse(open1.questions).map(q => { const o = Object.assign({}, q); delete o.p; delete o.r; return o; }).slice(0, 10)).replace(/"/g, '""');
   files['dutch/battles.csv'].text += 'bOLD,challenge,2026-11-10,Noah,Anna,normal,120,8,10,"' + oldQs + '"\n';
   ({ ctx, page, errors } = await newPhone(browser));
   await page.evaluateOnNewDocument(() => localStorage.setItem('dr.who', '"Anna"'));
@@ -549,11 +563,80 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.waitForSelector('#battleLists .brow button');
   const scBefore = rowsOf('dutch/scores.csv').length;
   await page.evaluate(() => [...document.querySelectorAll('#battleLists .brow')].find(r => /Noah scored 120/.test(r.textContent) && !/€/.test(r.textContent)).querySelector('button').click());
-  await page.waitForFunction(() => /Question 1 of/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
   ok(await page.$eval('#bTimer', e => e.hidden) && !!(await page.$('#bView .bv-g')), 'an older challenge has no clock but still shows the ghost');
   const oldLog = await play(page, () => 'right');
   ok(/You beat Noah/.test(await txt(page, '#qSummary')) && !/wager|pot/i.test(await txt(page, '#qSummary')), 'old challenge: no wager, plain result: ' + await txt(page, '#qSummary'));
   ok(await until(() => rowsOf('dutch/scores.csv').length > scBefore) && !rowsOf('dutch/scores.csv').some(r => /bOLD/.test(r.id)), 'and no stake rows for it');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+
+  console.log('\n=== Quitting a reply forfeits it; walking away from one counts as a forfeit too ===');
+  const bo3q = rowsOf('dutch/battles.csv').find(r => r.id === open1.id).questions.replace(/"/g, '""');
+  files['dutch/battles.csv'].text += 'bQ1,challenge,2026-11-17,Noah,Anna,normal,120,12,15,"' + bo3q + '"\n' + 'bQ2,challenge,2026-11-17,Noah,Anna,normal,120,12,15,"' + bo3q + '"\n';
+  files['dutch/scores.csv'].text += 'wbQ1sNoah,2026-11-17,Noah,wager,-10,0,0,\nwbQ2sNoah,2026-11-17,Noah,wager,-10,0,0,\n';
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.evaluateOnNewDocument(() => localStorage.setItem('dr.who', '"Anna"'));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  await page.click('#tabPlayBtn');
+  await page.waitForSelector('#battleLists .brow button');
+  const playRow = re => page.evaluate(src => [...document.querySelectorAll('#battleLists .brow')].find(r => new RegExp(src).test(r.textContent)).querySelector('button').click(), re);
+  const nQ = await page.$$eval('#battleLists .brow button', b => b.length);
+  await playRow('\u20ac10 each');
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
+  await page.click('#qOpts .opt:nth-child(1)');
+  ok(await page.$eval('#qOpts .opt:nth-child(1)', e => e.classList.contains('picked') || e.classList.contains('right') || e.classList.contains('wrong')), 'your pick lights up straight away');
+  await page.waitForFunction(() => !!document.querySelector('#bView .bv-pts'), { timeout: 2000, polling: 10 });
+  ok(/^\+\d+$/.test(await txt(page, '#bView .bv-pts:not(.g)')) && /^\+\d+$/.test(await txt(page, '#bView .bv-pts.g')), 'the points flash beside both boats: ' + await page.$$eval('#bView .bv-pts', e => e.map(x => x.textContent).join(' ')));
+  await page.click('#qQuit');
+  ok(/Quit battle and forfeit \u20ac10\? Noah takes the pot/.test(await txt(page, '#quitText')), 'quitting asks first: ' + await txt(page, '#quitText'));
+  await page.click('#quitNo'); ok(await page.$eval('#quitBox', e => e.hidden) && !(await page.$eval('#quiz', e => e.hidden)), 'Keep playing goes back to the battle');
+  await page.click('#qQuit'); await page.click('#quitYes');
+  ok(/You quit, so Noah wins the pot \(\u20ac20\)/.test(await txt(page, '#qSummary')), 'quitting forfeits: ' + await txt(page, '#qSummary'));
+  ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.id === 'wbQ1pNoah' && r.points === '20') && rowsOf('dutch/scores.csv').some(r => r.id === 'wbQ1sAnna' && r.points === '-10')), 'Anna loses her 10, Noah gets the pot of 20');
+  ok(await until(() => rowsOf('dutch/battles.csv').some(r => r.id === 'bQ1' && r.type === 'reply' && JSON.parse(r.questions).forfeit)), 'the reply row says forfeit');
+  await page.click('#qDone');
+  // start the second one, then close the app mid-battle
+  await page.evaluate(() => [...document.querySelectorAll('#battleLists .brow')].filter(r => /\u20ac10 each/.test(r.textContent))[0].querySelector('button').click());
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
+  ok(await until(() => rowsOf('dutch/battles.csv').some(r => r.id === 'bQ2' && r.type === 'start' && r.who === 'Anna')), 'the start row went out');
+  await page.reload({ waitUntil: 'networkidle0' });
+  await page.click('#tabPlayBtn');
+  ok(await until(async () => /didn't finish it, so it counts as a forfeit/.test(await bMsg())), 'opening the app again: the unfinished battle is a forfeit: ' + await bMsg());
+  ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.id === 'wbQ2pNoah' && r.points === '20')), 'and Noah gets that pot too');
+  ok(!/\u20ac10 each/.test(await txt(page, '#battleLists')), 'neither battle is waiting any more');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+
+  console.log('\n=== Small phone (iPhone SE size): every button fits without scrolling ===');
+  files['dutch/battles.csv'].text += 'bSE,challenge,2026-11-17,Noah,Anna,normal,120,12,15,"' + bo3q + '"\n';
+  files['dutch/scores.csv'].text += 'wbSEsNoah,2026-11-17,Noah,wager,-10,0,0,\n';
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.setViewport({ width: 375, height: 667 });
+  await page.evaluateOnNewDocument(shot => { localStorage.setItem('dr.who', '"Anna"'); if (shot) localStorage.setItem('dr.pause', '1200'); }, !!process.env.SHOT);
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  await page.click('#tabPlayBtn'); await page.waitForSelector('#battleLists .brow button');
+  await page.evaluate(() => [...document.querySelectorAll('#battleLists .brow')].find(r => /best of 3/.test(r.textContent) && /\u20ac10 each/.test(r.textContent)).querySelector('button').click());
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
+  const se = await page.evaluate(() => ({ last: Math.round(document.querySelector('#qOpts .opt:last-child').getBoundingClientRect().bottom), h: innerHeight, view: Math.round(document.getElementById('bView').getBoundingClientRect().height), x: Math.round(document.getElementById('qQuit').getBoundingClientRect().top) }));
+  const boatY = await page.evaluate(() => { const v = document.getElementById('bView').getBoundingClientRect(), b = document.querySelector('#bView .bv-me').getBoundingClientRect(); return Math.round((b.top + b.height / 2 - v.top) / v.height * 100); });
+  ok(boatY >= 40 && boatY <= 60, 'your boat sits in the middle of the view: ' + boatY + '%');
+  ok(await page.$eval('#qPrompt', e => e.hidden), 'no stray number under the word (the points stored with each question are not a prompt)');
+  ok(se.last <= se.h && se.view >= 150 && se.x >= 0, 'iPhone SE: answers end at ' + se.last + ' of ' + se.h + 'px, boat view ' + se.view + 'px tall');
+  if (process.env.SHOT) { await page.screenshot({ path: '/tmp/shot_se0.png' }); await page.click('#qOpts .opt:nth-child(2)'); await new Promise(r => setTimeout(r, 650)); await page.screenshot({ path: '/tmp/shot_se.png' }); }
+  await page.click('#qQuit'); await page.click('#quitYes');
+  await ctx.close();
+  // practice round full screen too
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.setViewport({ width: 375, height: 667 });
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  await page.click('#tabPlayBtn'); await page.click('#btnRound');
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
+  const pr = await page.evaluate(() => ({ nav: getComputedStyle(document.querySelector('nav')).display, last: document.querySelector('#qOpts .opt:last-child').getBoundingClientRect().bottom <= innerHeight }));
+  ok(pr.nav === 'none' && pr.last, 'a quick round is full screen too, answers on screen: ' + JSON.stringify(pr));
+  if (process.env.SHOT) await page.screenshot({ path: '/tmp/shot_practice.png' });
+  await page.click('#qQuit'); ok(/This round's money is lost/.test(await txt(page, '#quitText')), 'quitting a quick round asks: ' + await txt(page, '#quitText'));
+  await page.click('#quitYes'); ok(await page.$eval('nav', e => getComputedStyle(e).display !== 'none'), 'and the tabs come back');
   ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await ctx.close();
 
@@ -567,12 +650,12 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.click('#btnDrill');
   const dlog = [];
   for (let i = 0; i < 10; i++) {
-    await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
+    await page.waitForFunction(n => document.getElementById('quiz').dataset.q === String(n - 1), { timeout: 5000 }, i + 1);
     const dutch = await txt(page, '#qWord'), prompt = await txt(page, '#qPrompt'), opts = await page.$$eval('#qOpts .opt span', e => e.map(x => x.textContent));
     const form = /^Past/.test(prompt) ? 'past' : 'perfect', row = drillRows.find(r => r.dutch === dutch), right = G.parseDrill(row.english)[form];
     const want = i < 6 ? 'right' : 'wrong', idx = opts.findIndex(o => want === 'right' ? o === right : o !== right);
     dlog.push({ dutch, prompt, opts, right, form });
-    await page.click('#qOpts .opt:nth-child(' + (idx + 1) + ')'); await page.click('#qNext');
+    await page.click('#qOpts .opt:nth-child(' + (idx + 1) + ')');
   }
   await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
   ok(dlog.every(l => /^(Past tense|Perfect) of /.test(l.prompt) && l.opts.length === 4 && new Set(l.opts).size === 4 && l.opts.includes(l.right)), 'drill questions: prompt + four different forms, one right');
@@ -640,7 +723,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   const pend = () => page.evaluate(() => { try { return Object.keys(JSON.parse(localStorage.getItem('dr.pending.Noah') || '{}')).length; } catch (e) { return -1; } });
   const fbText = () => txt(page, '#qFeedback');
   await page.click('#tabPlayBtn'); await page.select('#tDir', 'en2nl'); await page.click('#btnType');
-  await page.waitForFunction(() => /Question 1 of 10/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  await page.waitForFunction(() => document.getElementById('quiz').dataset.q === '0', { timeout: 5000 });
   const asked = await txt(page, '#qWord'), attrs = await page.$eval('#qInput', e => ({ cap: e.getAttribute('autocapitalize'), corr: e.getAttribute('autocorrect'), spell: e.spellcheck, lang: e.lang, ac: e.getAttribute('autocomplete') }));
   ok(wordRows.some(r => r.english === asked) && /Type it in Dutch/.test(await txt(page, '#qPrompt')), 'English to Dutch: shows the English word (' + asked + ') and asks for Dutch');
   ok(attrs.cap === 'off' && attrs.corr === 'off' && attrs.spell === false && attrs.lang === 'nl' && attrs.ac === 'off', 'the box has autocorrect, auto-capitals and spell-check off: ' + JSON.stringify(attrs));
@@ -648,12 +731,12 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.click('#qCheck');
   ok(/Type an answer first/.test(await fbText()) && (await pend()) === 0, 'an empty answer is refused, not counted');
   await page.click('#qShow'); ok(/Not counted/.test(await fbText()) && (await pend()) === 0, 'Show me gives the answer and counts nothing: ' + await fbText());
-  await page.click('#qQuit');
+  await page.click('#qQuit'); await page.click('#quitYes');
   // Dutch to English round: right, wrong, show me
   await page.select('#tDir', 'nl2en'); await page.click('#btnType');
   const rightKeys = [], wrongKeys = []; let step = 'right', rightPts = 0;
   for (let i = 0; i < 10 && step !== 'done'; i++) {
-    await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
+    await page.waitForFunction(n => document.getElementById('quiz').dataset.q === String(n - 1), { timeout: 5000 }, i + 1);
     const d = await txt(page, '#qWord'), rs = wordRows.filter(r => r.dutch === d), uniq = rs.length === 1;
     if (step === 'right' && uniq) {
       const a = firstAlt(rs[0].english); await page.type('#qInput', a.charAt(0).toUpperCase() + a.slice(1)); await page.click('#qCheck');
@@ -663,21 +746,19 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
       await page.type('#qInput', 'qqqxxzz'); await page.click('#qCheck');
       ok(/^Not quite\. It is /.test(await fbText()), 'a wrong answer shows the right one: ' + await fbText()); wrongKeys.push(rs[0]); step = 'show';
     } else { await page.click('#qShow'); if (step === 'show') { ok(/Not counted/.test(await fbText()), 'Show me is not counted'); step = 'done'; } }
-    if (step !== 'done') await page.click('#qNext');
   }
   ok(rightPts >= 20 && rightPts <= 40, 'typing is worth double points (' + rightPts + ' for a right answer; multiple choice pays 5 to 20)');
   ok((await pend()) === 2, 'only the right and the wrong answer were recorded: ' + await pend());
-  await page.click('#qQuit');
+  await page.click('#qQuit'); await page.click('#quitYes');
   ok(await until(async () => { const rs = M.csvRecords(files['dutch/noah.csv'].text), g = x => rs.find(r => r.dutch === x.dutch && r.english === x.english); return g(rightKeys[0]).streak !== '0' && g(wrongKeys[0]).status === 'needs_practice'; }), 'saved: the right word moved up, the wrong word needs practice');
   // a whole round: right where possible
   await page.select('#tDir', 'nl2en'); await page.click('#btnType');
   let nRight = 0, nShow = 0;
   for (let i = 0; i < 10; i++) {
-    await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
+    await page.waitForFunction(n => document.getElementById('quiz').dataset.q === String(n - 1), { timeout: 5000 }, i + 1);
     const d = await txt(page, '#qWord'), rs = wordRows.filter(r => r.dutch === d);
     if (rs.length === 1) { await page.type('#qInput', firstAlt(rs[0].english)); await page.click('#qCheck'); if (/^Right!/.test(await fbText())) nRight++; else { console.log('   not right: ', d, rs[0].english, await fbText()); } }
     else { await page.click('#qShow'); nShow++; }
-    if (i === 0) await page.keyboard.press('Enter'); else await page.click('#qNext');
   }
   await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
   ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.mode === 'type')), 'a Type it score row was sent');
@@ -687,7 +768,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   // nothing counted: no score row
   const scoresBefore = rowsOf('dutch/scores.csv').length;
   await page.click('#btnType');
-  for (let i = 0; i < 10; i++) { await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1); await page.click('#qShow'); await page.click('#qNext'); }
+  for (let i = 0; i < 10; i++) { await page.waitForFunction(n => document.getElementById('quiz').dataset.q === String(n - 1), { timeout: 5000 }, i + 1); await page.click('#qShow'); }
   await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
   ok(/No answers were counted/.test(await txt(page, '#qSummary')), 'a round where nothing was counted says so: ' + await txt(page, '#qSummary'));
   await new Promise(r => setTimeout(r, 800));
@@ -757,7 +838,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.select('#fDir', 'en2nl'); await page.click('#btnFlash');
   await page.waitForFunction(() => /Card 1 of 10/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
   const enFront = await fFront(); ok(fRows.some(r => r.english === enFront), 'English to Dutch: the card shows English first: ' + enFront);
-  await kp('Space'); await kp('ArrowRight'); await page.click('#qQuit');
+  await kp('Space'); await kp('ArrowRight'); await page.click('#qQuit'); await page.click('#quitYes');
   await new Promise(r => setTimeout(r, 800));
   ok(rowsOf('dutch/scores.csv').length === sBefore && /nothing banked/.test(await txt(page, '#roundMsg')), 'stopping part-way banks nothing');
   ok(wrongTotal >= 2, 'missed words counted as wrong answers');

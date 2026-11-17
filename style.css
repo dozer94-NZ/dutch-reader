@@ -202,3 +202,36 @@ dialog.sheet { border-width: 3px 0 0; border-radius: 20px 20px 0 0; }
 .bv-wake { position: absolute; width: 3px; height: 34px; background: rgba(244,230,195,.45); transform: translateX(-50%); }
 .bv-name { position: absolute; transform: translateX(-50%); font-size: 12px; background: #fbf3dc; border: 1.5px solid var(--ink); border-radius: 5px; padding: 0 5px; white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .bv-boat { transition: none; } .bv-boat .oL, .bv-boat .oR { transition: none; } }
+
+/* v11: games open full screen; Chase-style pause; best of 3 races */
+body.playing { overflow: hidden; }
+body.playing header, body.playing nav { display: none; }
+body.playing #quiz, body.playing #quizEnd { position: fixed; inset: 0; z-index: 40; margin: 0; border: 0; border-radius: 0; box-shadow: none; background: var(--bg);
+  padding: calc(8px + env(safe-area-inset-top)) 14px calc(12px + env(safe-area-inset-bottom)); height: 100vh; height: 100dvh; box-sizing: border-box; }
+body.playing #quiz:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
+body.playing #quizEnd { overflow-y: auto; }
+#quiz .qtop { align-items: center; min-height: 40px; flex: none; }
+.qx { font-size: 20px; line-height: 1; padding: 6px 12px; }
+#quiz .word { font-size: clamp(30px, 9vw, 46px); margin: 4px 0 2px; flex: none; }
+#quiz .badges, #qPrompt { flex: none; margin: 2px 0; }
+#quiz #qRace:not([hidden]) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#quiz .bview { flex: 1 1 auto; min-height: 150px; height: auto; }
+#quiz #qOpts { margin: auto 0 0; padding-top: 8px; flex: none; }
+#quiz.battle #qOpts { margin-top: 8px; }
+#quiz #qTypeBox { flex: none; }
+#quiz #qFeedback { flex: none; min-height: 1.4em; margin: 6px 0 0; }
+#quiz.battle #qFeedback { display: none; }
+#quiz #flashBox:not([hidden]) { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+.opt.picked { background: var(--mustard); color: var(--ink); }
+.bv-bag { position: absolute; transform: translateY(-50%); text-align: center; background: #fbf3dc; border: 2px solid var(--ink); border-radius: 8px; padding: 2px 5px; line-height: 1.1; box-shadow: 2px 2px 0 var(--ink); }
+.bv-bag span { display: block; font-size: 18px; }
+.bv-bag b { font-size: 13px; font-weight: 500; }
+.bv-pts { position: absolute; font: 400 26px/1 'Anton', sans-serif; color: #fbf3dc; -webkit-text-stroke: 1.5px var(--ink); pointer-events: none; animation: ptsUp 1s ease-out forwards; }
+.bv-pts.g { font-size: 18px; }
+.bv-pts.zero { color: #b9b2a4; }
+@keyframes ptsUp { 0% { opacity: 0; transform: translateY(6px) scale(.8); } 15% { opacity: 1; transform: none; } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-22px); } }
+.qpanel { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; background: rgba(26,26,26,.45); padding: 20px; }
+.qpanel-in { background: var(--card); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: 4px 4px 0 var(--ink); padding: 18px; width: 100%; max-width: 360px; text-align: center; }
+.qpanel-in h2 { margin: 0 0 6px; font: 400 30px/1.1 'Anton', sans-serif; }
+.flaglist .brow { padding: 4px 0; }
+@media (prefers-reduced-motion: reduce) { .bv-pts { animation: ptsFade 1s forwards; } @keyframes ptsFade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } } }
