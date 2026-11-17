@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.1'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.2'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
