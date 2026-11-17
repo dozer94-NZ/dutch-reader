@@ -7,6 +7,7 @@ const M = require(path.join(appDir, 'matcher.js')), T = require(path.join(appDir
 
 const files = {
   'dutch/vocab/dutch-vocab.csv': { text: fs.readFileSync(path.join(dataDir, 'vocab/dutch-vocab.csv'), 'utf8'), sha: 'v1' },
+  'dutch/vocab/packs.csv': { text: fs.readFileSync(path.join(dataDir, 'vocab/packs.csv'), 'utf8'), sha: 'p1' },
   'dutch/noah.csv': { text: fs.readFileSync(path.join(dataDir, 'noah.csv'), 'utf8'), sha: 'n1' },
   'dutch/anna.csv': { text: fs.readFileSync(path.join(dataDir, 'anna.csv'), 'utf8'), sha: 'a1' },
 };
@@ -86,7 +87,8 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: 'new', args: ['--no-sandbox'] });
   const today = new Date().toLocaleDateString('sv-SE');
   const allRows = M.csvRecords(files['dutch/vocab/dutch-vocab.csv'].text), TOTAL = allRows.length;
-  const vocab = allRows.filter(r => !/^verb-/.test(r.type || '')).map(r => ({ dutch: r.dutch, english: r.english, level: r.level || '' })), NW = vocab.length;
+  const PACKS = M.csvRecords(files['dutch/vocab/packs.csv'].text), onByDefault = new Set(PACKS.filter(p => p.default === 'yes').map(p => p.pack)), tagsOf = r => (r.packs || '').split(';').filter(Boolean);
+  const vocab = allRows.filter(r => !/^verb-/.test(r.type || '') && (!tagsOf(r).length || tagsOf(r).some(x => onByDefault.has(x)))).map(r => ({ dutch: r.dutch, english: r.english, level: r.level || '' })), NW = vocab.length;
   const prog = new Map(M.csvRecords(original.noah).map(r => [T.keyOf(r.dutch, r.english), r]));
   const expectQueue = T.buildQueue(vocab, prog, 'unrated', today);
 
@@ -477,6 +479,105 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(!seenDrill, 'three quick rounds: no verb drill row among the options');
   await page.click('#btnSortOpen'); await page.select('#mode', 'all');
   ok(new RegExp('\\b' + NW + ' left in this set').test(await txt(page, '#sortMsg')), 'sorting "all words" offers exactly the ' + NW + ' words, no verb drill rows: ' + await txt(page, '#sortMsg'));
+  await ctx.close();
+
+  console.log('\n=== Packs: switching packs on and off ===');
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  const packName = id => PACKS.find(p => p.pack === id).name, countOf = id => allRows.filter(r => !/^verb-/.test(r.type || '') && tagsOf(r).includes(id)).length;
+  const archOnly = allRows.filter(r => !/^verb-/.test(r.type || '') && tagsOf(r).length && tagsOf(r).every(x => x === 'architecture')), archNames = new Set(allRows.filter(r => tagsOf(r).includes('architecture')).map(r => r.dutch));
+  ok(archOnly.length > 30, 'the pilot pack has its own words: ' + archOnly.length);
+  const packState = () => page.$$eval('#sPacks label', ls => ls.map(l => ({ name: l.textContent, on: l.querySelector('input').checked })));
+  const clickPack = async name => { await page.evaluate(n => [...document.querySelectorAll('#sPacks label')].find(l => l.textContent.startsWith(n)).querySelector('input').click(), name); };
+  await page.click('#btnSettings');
+  let ps = await packState();
+  ok(PACKS.every(p => ps.some(s => s.name === packName(p.pack) + ' (' + countOf(p.pack).toLocaleString() + ')')), 'Settings lists every pack with its word count: ' + ps.map(s => s.name).join(' | '));
+  ok(ps.filter(s => !/^Architecture/.test(s.name)).every(s => s.on) && ps.find(s => /^Architecture/.test(s.name)).on === false, 'level packs are on and the topic pack is off by default');
+  await page.keyboard.press('Escape');
+  ok(new RegExp('\\b' + NW.toLocaleString() + ' words, Noah').test(await txt(page, '#listStatus')) && (await txt(page, '#homePacks')).startsWith('Packs on: all levels.'), 'default: only the level packs: ' + await txt(page, '#homePacks'));
+  await page.click('#btnSettings'); await clickPack('Architecture');
+  await page.keyboard.press('Escape');
+  let pt3 = await txt(page, '#progText');
+  ok(pt3.includes(' / ' + (NW + archOnly.length).toLocaleString()) && (await txt(page, '#homePacks')).includes('Architecture and construction'), 'switching Architecture on adds its ' + archOnly.length + ' new words: ' + pt3 + ' | ' + await txt(page, '#homePacks'));
+  await page.click('#btnSortOpen');
+  const firstPackWord = await txt(page, "#cWord");
+  ok(archNames.has(firstPackWord), 'sorting shows the words of a switched-on topic pack first: ' + firstPackWord);
+  await page.click('#sheetClose');
+  await page.reload({ waitUntil: 'networkidle0' });
+  ok((await txt(page, '#progText')).includes(' / ' + (NW + archOnly.length).toLocaleString()), 'the choice is remembered after a reload');
+  await page.click('#btnSettings'); await clickPack('Architecture'); await page.keyboard.press('Escape');
+  ok((await txt(page, '#progText')).includes(' / ' + NW.toLocaleString()), 'switching it off again takes the words away: ' + await txt(page, '#progText'));
+  await page.click('#btnSettings');
+  for (const n of ['A1', 'A2', 'B1', 'B2', 'C1']) await clickPack(n + ' (');
+  await clickPack('No level');
+  ps = await packState();
+  ok(ps.find(s => /^No level/.test(s.name)).on && /Keep at least one pack on/.test(await txt(page, '#sPacksMsg')), 'the last pack cannot be switched off: ' + await txt(page, '#sPacksMsg'));
+  await page.keyboard.press('Escape');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+
+  console.log('\n=== Type it ===');
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  const wordRows = allRows.filter(r => !/^verb-/.test(r.type || '') && (!tagsOf(r).length || tagsOf(r).some(x => onByDefault.has(x))));
+  const firstAlt = e => e.replace(/\([^)]*\)/g, ' ').split(/[;,\/]/).map(x => x.trim().replace(/^(to|the|a|an) /i, ''))[0];
+  const pend = () => page.evaluate(() => { try { return Object.keys(JSON.parse(localStorage.getItem('dr.pending.Noah') || '{}')).length; } catch (e) { return -1; } });
+  const fbText = () => txt(page, '#qFeedback');
+  await page.click('#tabPlayBtn'); await page.select('#tDir', 'en2nl'); await page.click('#btnType');
+  await page.waitForFunction(() => /Question 1 of 10/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  const asked = await txt(page, '#qWord'), attrs = await page.$eval('#qInput', e => ({ cap: e.getAttribute('autocapitalize'), corr: e.getAttribute('autocorrect'), spell: e.spellcheck, lang: e.lang, ac: e.getAttribute('autocomplete') }));
+  ok(wordRows.some(r => r.english === asked) && /Type it in Dutch/.test(await txt(page, '#qPrompt')), 'English to Dutch: shows the English word (' + asked + ') and asks for Dutch');
+  ok(attrs.cap === 'off' && attrs.corr === 'off' && attrs.spell === false && attrs.lang === 'nl' && attrs.ac === 'off', 'the box has autocorrect, auto-capitals and spell-check off: ' + JSON.stringify(attrs));
+  ok(await page.$eval('#qOpts', e => e.hidden) && !(await page.$eval('#qTypeBox', e => e.hidden)), 'a text box replaces the four options');
+  await page.click('#qCheck');
+  ok(/Type an answer first/.test(await fbText()) && (await pend()) === 0, 'an empty answer is refused, not counted');
+  await page.click('#qShow'); ok(/Not counted/.test(await fbText()) && (await pend()) === 0, 'Show me gives the answer and counts nothing: ' + await fbText());
+  await page.click('#qQuit');
+  // Dutch to English round: right, wrong, show me
+  await page.select('#tDir', 'nl2en'); await page.click('#btnType');
+  const rightKeys = [], wrongKeys = []; let step = 'right', rightPts = 0;
+  for (let i = 0; i < 10 && step !== 'done'; i++) {
+    await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
+    const d = await txt(page, '#qWord'), rs = wordRows.filter(r => r.dutch === d), uniq = rs.length === 1;
+    if (step === 'right' && uniq) {
+      const a = firstAlt(rs[0].english); await page.type('#qInput', a.charAt(0).toUpperCase() + a.slice(1)); await page.click('#qCheck');
+      const fb = await fbText(); ok(/^Right! \+\d+/.test(fb), 'typed ' + a + ' for ' + d + ' (capital letter ignored): ' + fb);
+      rightPts = Number(fb.match(/\+(\d+)/)[1]); rightKeys.push(rs[0]); step = 'wrong';
+    } else if (step === 'wrong' && uniq) {
+      await page.type('#qInput', 'qqqxxzz'); await page.click('#qCheck');
+      ok(/^Not quite\. It is /.test(await fbText()), 'a wrong answer shows the right one: ' + await fbText()); wrongKeys.push(rs[0]); step = 'show';
+    } else { await page.click('#qShow'); if (step === 'show') { ok(/Not counted/.test(await fbText()), 'Show me is not counted'); step = 'done'; } }
+    if (step !== 'done') await page.click('#qNext');
+  }
+  ok(rightPts >= 20 && rightPts <= 40, 'typing is worth double points (' + rightPts + ' for a right answer; multiple choice pays 5 to 20)');
+  ok((await pend()) === 2, 'only the right and the wrong answer were recorded: ' + await pend());
+  await page.click('#qQuit');
+  ok(await until(async () => { const rs = M.csvRecords(files['dutch/noah.csv'].text), g = x => rs.find(r => r.dutch === x.dutch && r.english === x.english); return g(rightKeys[0]).streak !== '0' && g(wrongKeys[0]).status === 'needs_practice'; }), 'saved: the right word moved up, the wrong word needs practice');
+  // a whole round: right where possible
+  await page.select('#tDir', 'nl2en'); await page.click('#btnType');
+  let nRight = 0, nShow = 0;
+  for (let i = 0; i < 10; i++) {
+    await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
+    const d = await txt(page, '#qWord'), rs = wordRows.filter(r => r.dutch === d);
+    if (rs.length === 1) { await page.type('#qInput', firstAlt(rs[0].english)); await page.click('#qCheck'); if (/^Right!/.test(await fbText())) nRight++; else { console.log('   not right: ', d, rs[0].english, await fbText()); } }
+    else { await page.click('#qShow'); nShow++; }
+    if (i === 0) await page.keyboard.press('Enter'); else await page.click('#qNext');
+  }
+  await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
+  ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.mode === 'type')), 'a Type it score row was sent');
+  const ts = rowsOf('dutch/scores.csv').find(r => r.mode === 'type');
+  ok(ts && ts.who === 'Noah' && Number(ts.right) === nRight && Number(ts.total) === 10 - nShow, 'score row counts only answers that were counted: ' + JSON.stringify(ts) + ' (right ' + nRight + ', shown ' + nShow + ')');
+  await page.click('#qDone');
+  // nothing counted: no score row
+  const scoresBefore = rowsOf('dutch/scores.csv').length;
+  await page.click('#btnType');
+  for (let i = 0; i < 10; i++) { await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1); await page.click('#qShow'); await page.click('#qNext'); }
+  await page.waitForFunction(() => !document.getElementById('quizEnd').hidden, { timeout: 5000 });
+  ok(/No answers were counted/.test(await txt(page, '#qSummary')), 'a round where nothing was counted says so: ' + await txt(page, '#qSummary'));
+  await new Promise(r => setTimeout(r, 800));
+  ok(rowsOf('dutch/scores.csv').length === scoresBefore, 'and sends no score row');
+  ok(!/github/i.test(await pageText(page)), 'no "GitHub" on the page');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await ctx.close();
 
   await browser.close(); srv.close();

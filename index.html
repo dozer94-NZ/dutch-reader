@@ -36,6 +36,7 @@
       </span>
     </button>
     <p id="homeHint" class="muted"></p>
+    <p id="homePacks" class="muted"></p>
     <p id="homeSave" class="muted"></p>
     <div class="scene" aria-hidden="true"><i class="sun"></i><i class="hill h1"></i><i class="hill h2"></i><i class="waves"></i></div>
   </section>
@@ -53,6 +54,15 @@
         <button id="btnRound" class="btn primary" type="button">Start a round</button>
         <p id="streakMsg" class="muted"></p>
         <p id="roundMsg" class="muted"></p>
+      </div>
+      <div class="card">
+        <h2 style="margin-top:0">Type it</h2>
+        <p class="muted">10 words: type the answer instead of picking it. Typing is worth double points. Capitals and accents don't matter, and one wrong letter is "Almost" and isn't counted.</p>
+        <label>Direction
+          <select id="tDir"><option value="mixed">Mixed</option><option value="en2nl">English to Dutch</option><option value="nl2en">Dutch to English</option></select>
+        </label>
+        <button id="btnType" class="btn primary" type="button">Start Type it</button>
+        <p id="typeMsg" class="muted"></p>
       </div>
       <div class="card">
         <h2 style="margin-top:0">Verb drill</h2>
@@ -79,6 +89,13 @@
       <div id="qWord" class="word"></div>
       <p id="qPrompt" class="muted" hidden style="text-align:center"></p>
       <div id="qOpts" class="opts"></div>
+      <form id="qTypeBox" hidden autocomplete="off">
+        <input id="qInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Your answer" placeholder="Type your answer">
+        <div class="row">
+          <button id="qCheck" class="btn primary grow" type="submit">Check</button>
+          <button id="qShow" class="btn" type="button">Show me</button>
+        </div>
+      </form>
       <p id="qFeedback" class="fb"></p>
       <div class="row">
         <button id="qNext" class="btn primary grow" type="button" hidden>Next →</button>
@@ -210,6 +227,11 @@
     <label>Who is using this phone?
       <select id="sWho"><option>Noah</option><option>Anna</option></select>
     </label>
+    <div id="sPacksBox" hidden>
+      <h3>Packs: which words to practise</h3>
+      <div id="sPacks"></div>
+      <p id="sPacksMsg" class="err"></p>
+    </div>
     <label>Add a person
       <input id="sNewName" autocomplete="off" autocapitalize="off" placeholder="a first name, e.g. Sam">
     </label>

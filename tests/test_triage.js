@@ -82,5 +82,11 @@ if (dir) for (const who of ['noah', 'anna']) {
     assert.strictEqual(diff, r.changed); assert(diff <= 3 && diff >= 1); assert.strictEqual(b.length, lines.length);
   });
 }
+t('words of a switched-on topic pack come first in the sorting queue', () => {
+  const ws = [{ dutch: 'a', english: 'x', level: 'A1' }, { dutch: 'b', english: 'y', level: 'B1', inPack: true }, { dutch: 'c', english: 'z', level: 'A2' }];
+  assert.strictEqual(T.buildQueue(ws, new Map(), 'unrated', '2026-11-17')[0].dutch, 'b');
+  assert.strictEqual(T.buildQueue(ws.map(w => ({ ...w, inPack: false })), new Map(), 'unrated', '2026-11-17')[0].dutch, 'a');
+});
+
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
 process.exit(fails ? 1 : 0);

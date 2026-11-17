@@ -6,8 +6,8 @@
   'use strict';
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
-              inbox: 'dutch/inbox.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.3'; // keep the same as version.json; bump both on every change
+              inbox: 'dutch/inbox.csv', packs: 'dutch/vocab/packs.csv', api: 'https://api.github.com' };
+  var VERSION = '2026-11-17.5'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -29,6 +29,7 @@
   var token = store.get('token', '');
   var vocabCsv = store.get('vocabCsv', '');
   var inboxCsv = store.get('inboxCsv', '');
+  var packsCsv = store.get('packsCsv', '');          // packs.csv: which packs exist (A1 ... C1, topics)
   var progText = store.get('prog.' + who, '');
   var pending = store.get('pending.' + who, {});     // ratings not yet saved to the wordlist
   var inboxQueue = store.get('queue', []);           // typed words not yet sent
@@ -41,7 +42,7 @@
   var people = store.get('people', ['Noah', 'Anna']);  // everyone with a progress file
   var RESERVED = ['inbox', 'issues', 'ideas', 'people', 'readme', 'vocab', 'scores', 'battles'];
   var PROG_HEADER = 'dutch,english,status,right,wrong,streak,last_practised,next_due,pronunciation';
-  var words = [], drills = [], progress = new Map(), index = M.buildIndex([]);
+  var words = [], allWords = [], drills = [], packList = [], progress = new Map(), index = M.buildIndex([]);   // words = the words of the packs that are switched on
   var session = { queue: [], pos: 0, done: 0, undo: [] };
   var saving = false, looked = false;
 
@@ -123,9 +124,20 @@
   }
   function rebuild() {
     var all = vocabCsv ? M.csvRecords(vocabCsv).filter(function (r) { return r.dutch && r.english; }).map(function (r) {
-      return { dutch: r.dutch, english: r.english, level: r.level || '', type: r.type || 'word' };
+      return { dutch: r.dutch, english: r.english, level: r.level || '', type: r.type || 'word',
+               tags: (r.packs || '').split(';').map(function (x) { return x.trim(); }).filter(Boolean) };
     }) : [];
-    words = all.filter(function (w) { return !/^verb-/.test(w.type); });      // sorting, quick rounds, battles
+    packList = packsCsv ? M.csvRecords(packsCsv).filter(function (r) { return r.pack; }) : [];
+    var act = activeSet(), topic = {};
+    packList.forEach(function (p) { topic[p.pack] = p.kind === 'topic'; });
+    allWords = all.filter(function (w) { return !/^verb-/.test(w.type); });
+    words = allWords.filter(function (w) {       // a word counts when one of its packs is on (no packs listed = always on)
+      w.inPack = false;
+      if (!packList.length || !w.tags.length) return true;
+      var on = w.tags.filter(function (t) { return act.has(t); });
+      w.inPack = on.some(function (t) { return topic[t]; });
+      return on.length > 0;
+    });
     drills = all.filter(function (w) { return /^verb-/.test(w.type); });      // the Verb drill only
     progress = new Map();
     if (progText) M.csvRecords(progText).forEach(function (r) { progress.set(T.keyOf(r.dutch, r.english), r); });
@@ -134,7 +146,43 @@
       Object.assign(row, fieldsOfEntry(e)); progress.set(k, row);
     });
     var inboxRows = inboxCsv ? M.csvRecords(inboxCsv) : [];
-    index = M.buildIndex(words.concat(inboxRows, inboxQueue).map(function (r) { return { dutch: r.dutch, english: r.english, type: r.type }; }));
+    index = M.buildIndex(allWords.concat(inboxRows, inboxQueue).map(function (r) { return { dutch: r.dutch, english: r.english, type: r.type }; }));
+  }
+  // ---------- packs ----------
+  function activeSet() {       // the packs switched on for this phone (saved), else the ones packs.csv says are on by default
+    var saved = store.get('packs', null);
+    if (Array.isArray(saved)) return new Set(saved);
+    var s = new Set(); packList.forEach(function (p) { if (p.default === 'yes') s.add(p.pack); });
+    return s;
+  }
+  function setPack(id, on) {
+    var s = activeSet(); if (on) s.add(id); else s.delete(id);
+    if (!s.size) { renderPacksBox(); $('sPacksMsg').textContent = 'Keep at least one pack on.'; return; }
+    $('sPacksMsg').textContent = '';
+    store.set('packs', Array.from(s));
+    rebuild(); startSession(); updateCounts(); renderHome(); renderPacksBox();
+  }
+  function renderPacksBox() {
+    var box = $('sPacks'), act = activeSet(), counts = {}; box.textContent = '';
+    $('sPacksBox').hidden = !packList.length;
+    allWords.forEach(function (w) { w.tags.forEach(function (t) { counts[t] = (counts[t] || 0) + 1; }); });
+    [['level', 'Levels'], ['topic', 'Topics']].forEach(function (g) {
+      var items = packList.filter(function (p) { return p.kind === g[0]; });
+      if (!items.length) return;
+      box.appendChild(h('h3', { text: g[1] }));
+      items.forEach(function (p) {
+        var cb = h('input', { type: 'checkbox' }); cb.checked = act.has(p.pack);
+        cb.addEventListener('change', function () { setPack(p.pack, cb.checked); });
+        box.appendChild(h('label', { class: 'check', title: p.description || '' }, cb, h('span', { text: p.name + ' (' + (counts[p.pack] || 0).toLocaleString() + ')' })));
+      });
+    });
+  }
+  function packsLine() {
+    if (!packList.length) return '';
+    var act = activeSet(), lv = packList.filter(function (p) { return p.kind === 'level'; }), lvOn = lv.filter(function (p) { return act.has(p.pack); }),
+        tp = packList.filter(function (p) { return p.kind === 'topic' && act.has(p.pack); }).map(function (p) { return p.name; });
+    var parts = [lvOn.length === lv.length ? 'all levels' : lvOn.map(function (p) { return p.name; }).join(', ')].concat(tp).filter(Boolean);
+    return 'Packs on: ' + parts.join(' + ') + '. Change this in Settings.';
   }
   function ratedTotal() {
     var n = 0, t0 = today();
@@ -151,8 +199,9 @@
         var p = await ghGetRaw(progPath());
         if (p === null) throw new Error(progPath() + ' not found');
         var ib = await ghGetRaw(CFG.inbox);
-        vocabCsv = v; progText = p; inboxCsv = ib || '';
-        store.set('vocabCsv', vocabCsv); store.set('prog.' + who, progText); store.set('inboxCsv', inboxCsv);
+        var pk = null; try { pk = await ghGetRaw(CFG.packs); } catch (e2) { pk = packsCsv; }
+        vocabCsv = v; progText = p; inboxCsv = ib || ''; packsCsv = pk || '';
+        store.set('packsCsv', packsCsv); store.set('vocabCsv', vocabCsv); store.set('prog.' + who, progText); store.set('inboxCsv', inboxCsv);
         store.set('fetched', new Date().toISOString());
       } catch (e) { note = ". Couldn't reach the wordlist (" + e.message + '); using the copy saved on this phone.'; bad = true; }
     } else if (!vocabCsv) bad = true;
@@ -234,6 +283,7 @@
     var pc = total ? rated / total * 100 : 0;
     $('progFill').style.width = (pc > 0 ? Math.max(pc, 4) : 0) + '%';
     $('homeHint').textContent = total && left ? 'Tap to rate the words you haven\'t sorted yet. Each tap saves your rating, and you can stop any time.' : (total ? 'Tap to re-check words you have already rated.' : '');
+    $('homePacks').textContent = packsLine();
     var n = pendingList().length;
     $('homeSave').textContent = n ? n + (n === 1 ? ' rating' : ' ratings') + ' waiting to save' : '';
   }
@@ -540,6 +590,12 @@
     }
     startRound({ kind: 'practice', flat: false, qs: G.makeQuestions(chosen, words, seed), wotwKey: wotwKey });
   }
+  function startType() {
+    var msg = $('typeMsg'); msg.textContent = '';
+    if (!words.length) { msg.textContent = 'Load the wordlist first (Settings).'; return; }
+    var seed = 't' + Date.now() + Math.random(), chosen = G.pickPractice(words, progress, today(), seed, G.ROUND);
+    startRound({ kind: 'type', flat: false, qs: G.makeTypeQuestions(chosen, $('tDir').value, seed), wotwKey: null });
+  }
   function startDrill() {
     var msg = $('drillMsg'); msg.textContent = '';
     if (!drills.length) { msg.textContent = 'No verb drills in the wordlist yet.'; return; }
@@ -578,11 +634,19 @@
     var q = round.qs[round.pos]; round.locked = false; round.t0 = Date.now();
     $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points' +
       (round.opp ? ' · battle vs ' + round.opp : '');
-    $('qWord').textContent = q.d;
+    var typed = !!q.t;
+    $('qOpts').hidden = typed; $('qTypeBox').hidden = !typed;
+    if (typed) {
+      $('qWord').textContent = q.dir === 'en2nl' ? q.e : q.d;
+      q.p = q.dir === 'en2nl' ? 'Type it in Dutch' : 'Type the meaning in English';
+      var inp = $('qInput'); inp.value = ''; inp.disabled = false; inp.lang = q.dir === 'en2nl' ? 'nl' : 'en';
+      $('qCheck').hidden = false; $('qShow').hidden = false;
+      setTimeout(function () { if (round && !round.locked) inp.focus(); }, 50);
+    } else $('qWord').textContent = q.d;
     $('qPrompt').hidden = !q.p; $('qPrompt').textContent = q.p || '';
     $('qStar').hidden = !(round.wotwKey && round.wotwKey === T.keyOf(q.d, q.e));
     var box = $('qOpts'); box.textContent = '';
-    q.o.forEach(function (o, i) {
+    if (!typed) q.o.forEach(function (o, i) {
       box.appendChild(h('button', { type: 'button', class: 'opt', onclick: function () { answer(i); } }, h('b', { text: String(i + 1) }), h('span', { text: o })));
     });
     $('qFeedback').textContent = ''; $('qNext').hidden = true; $('qFlag').hidden = true;
@@ -607,6 +671,28 @@
     $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
     updateCounts();
   }
+  function answerTyped(giveUp) {
+    if (!round || round.locked) return;
+    var q = round.qs[round.pos], text = $('qInput').value;
+    if (!giveUp && !text.trim()) { $('qFeedback').textContent = 'Type an answer first, or tap Show me.'; $('qFeedback').className = 'err'; return; }
+    var res = giveUp ? { result: 'giveup' } : G.checkTyped({ dutch: q.d, english: q.e }, text, q.dir, allWords);
+    round.locked = true;
+    var k = T.keyOf(q.d, q.e), ms = Date.now() - round.t0, t0 = today(), answerText = q.dir === 'en2nl' ? q.d : q.e, fb, cls = 'err';
+    $('qInput').disabled = true; $('qCheck').hidden = true; $('qShow').hidden = true;
+    if (res.result === 'right' || res.result === 'wrong') {        // only clear answers are counted
+      var ok = res.result === 'right', lv = T.levelOf(progress.get(k), t0), pts = ok ? G.typedPoints(lv, ms) : 0;
+      round.answers.push({ ok: ok, pts: pts, key: k }); round.pts += pts;
+      var row = progress.get(k) || blankRow({ dutch: q.d, english: q.e }), fields = G.applyAnswer(row, ok, t0);
+      pending[k] = { dutch: q.d, english: q.e, kind: 'answer', fields: fields }; store.set('pending.' + who, pending);
+      Object.assign(row, fields); progress.set(k, row);
+      fb = ok ? 'Right! +' + pts + (answerText.toLowerCase() === text.trim().toLowerCase() ? '' : ' (' + answerText + ')') : 'Not quite. It is ' + answerText + '.'; cls = ok ? 'ok' : 'err';
+    } else if (res.result === 'almost') { fb = res.note + ' Not counted either way.'; cls = 'muted'; }
+    else { fb = 'It is ' + answerText + '. Not counted.'; cls = 'muted'; }
+    $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points';
+    $('qFeedback').textContent = fb; $('qFeedback').className = 'fb ' + cls;
+    $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
+    updateCounts();
+  }
   function nextQuestion() {
     if (!round || !round.locked) return;
     round.locked = false;
@@ -620,11 +706,11 @@
     var wotwHit = !!round.wotwKey && round.answers.some(function (a) { return a.key === round.wotwKey && a.ok; });
     var res = G.scoreRound(round.answers, { flat: flat, wotwHit: wotwHit, newDay: newDay, streak: streak });
     var rid = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.kind === 'drill' ? 'drill' : (round.mode === 'handicap' ? 'handicap' : 'battle')),
+    if (res.total) scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.kind === 'type' ? 'type' : round.kind === 'drill' ? 'drill' : (round.mode === 'handicap' ? 'handicap' : 'battle')),
                       points: String(res.points), right: String(res.right), total: String(res.total), wotw: wotwHit ? '1' : '' });
     store.set('scoreQ', scoreQueue);
-    var lines = ['You got ' + res.right + ' of ' + res.total + ' right and scored ' + res.points + ' points.'], p = res.parts;
-    if (!flat) {
+    var lines = [res.total ? 'You got ' + res.right + ' of ' + res.total + ' right and scored ' + res.points + ' points.' : 'No answers were counted this round, so no points.'], p = res.parts;
+    if (!flat && res.total) {
       if (p.perfect) lines.push('Perfect round: +' + p.perfect);
       if (p.wotw) lines.push('Word of the week: +' + p.wotw);
       if (p.streak) lines.push('Daily streak of ' + streak + (streak === 1 ? ' day' : ' days') + ': +' + p.streak);
@@ -678,7 +764,7 @@
         msg.textContent = name + ' already has a list. Chosen above; tap Save to switch to it.'; return;
       }
       var seen = new Set(), rows = [];
-      words.concat(drills).forEach(function (w) { var k = T.keyOf(w.dutch, w.english); if (!seen.has(k)) { seen.add(k); rows.push(w); } });
+      allWords.concat(drills).forEach(function (w) { var k = T.keyOf(w.dutch, w.english); if (!seen.has(k)) { seen.add(k); rows.push(w); } });
       rows.sort(function (a, b) {
         var x = a.dutch.toLowerCase(), y = b.dutch.toLowerCase();
         if (x !== y) return x < y ? -1 : 1;
@@ -706,6 +792,7 @@
     populateWho(); $('sToken').value = token; $('sPersonMsg').textContent = '';
     loadPeople().then(populateWho);
     $('sInfo').textContent = pendingList().length + ' rating(s) not saved yet.';
+    $('sPacksMsg').textContent = ''; renderPacksBox();
     $('settings').showModal();
     checkVersion();
   }
@@ -760,6 +847,9 @@
   $('btnSkip').addEventListener('click', skip);
   $('btnSave').addEventListener('click', save);
   $('btnSettings').addEventListener('click', openSettings);
+  $('btnType').addEventListener('click', startType);
+  $('qTypeBox').addEventListener('submit', function (ev) { ev.preventDefault(); if (round && round.locked) nextQuestion(); else answerTyped(false); });
+  $('qShow').addEventListener('click', function () { answerTyped(true); });
   $('sUpdate').addEventListener('click', function () { location.reload(); });
   $('sSave').addEventListener('click', applySettings);
   $('sAddPerson').addEventListener('click', addPerson);

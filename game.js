@@ -114,7 +114,7 @@
     var st = (row && row.status) || 'unknown', due = (row && row.next_due) || '';
     if (st === 'needs_practice') return 0;
     if (st === 'learning') return due <= today ? 1 : 7;
-    if (st === 'unknown') return due ? 2 : (w.level === 'A1' ? 3 : (w.level === 'A2' ? 4 : 6));
+    if (st === 'unknown') return due ? 2 : ((w.level === 'A1' || w.inPack) ? 3 : (w.level === 'A2' ? 4 : 6));
     if (st === 'known') return due <= today ? 5 : 7;
     return 7;
   }
@@ -145,6 +145,61 @@
     var best = null, bh = 0;
     pool.forEach(function (w) { var h = hash(T.keyOf(w.dutch, w.english) + '|' + weekYmd); if (best === null || h < bh) { best = w; bh = h; } });
     return best;
+  }
+
+
+  // ---- Type it: the person types the answer (English to Dutch, or Dutch to English) ----
+  function fold(s) { return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function enAlts(e) {   // "to do the dishes, to wash up" -> ["do the dishes", "wash up"]
+    return String(e).replace(/\([^)]*\)/g, ' ').split(/[;,\/]/).map(function (x) { return fold(x).replace(/^(to|the|a|an) /, ''); }).filter(Boolean);
+  }
+  function nlAlts(d) {   // "het dak" -> [{art: "het", word: "dak"}]
+    return String(d).replace(/\([^)]*\)/g, ' ').split(/[;\/]/).map(function (x) {
+      var f = fold(x), m = f.match(/^(de|het|een) (.+)$/);
+      return { art: m ? m[1] : '', word: m ? m[2] : f };
+    }).filter(function (a) { return a.word; });
+  }
+  function dist(a, b) {   // letters to change, add or take away; swapping two neighbours counts as one
+    var m = a.length, n = b.length, d = [], i, j;
+    for (i = 0; i <= m; i++) { d[i] = [i]; }
+    for (j = 1; j <= n; j++) d[0][j] = j;
+    for (i = 1; i <= m; i++) for (j = 1; j <= n; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+    return d[m][n];
+  }
+  function close(a, b) { return a.length >= 4 && b.length >= 4 && dist(a, b) <= 1; }
+  /* word: {dutch, english}; dir: 'en2nl' (shows English, type Dutch) or 'nl2en'; pool: all words (to spot another word with the same meaning).
+     Returns {result: 'right' | 'almost' | 'wrong' | 'empty', note}. 'almost' is never counted, right or wrong.
+     Capitals, accents and punctuation are ignored; a missing de/het is fine; a wrong de/het or one letter off is 'almost'. */
+  function checkTyped(word, text, dir, pool) {
+    var typed = fold(text), i;
+    if (!typed) return { result: 'empty' };
+    if (dir === 'nl2en') {
+      var tt = typed.replace(/^(to|the|a|an) /, ''), alts = enAlts(word.english);
+      if (alts.indexOf(tt) >= 0) return { result: 'right' };
+      for (i = 0; i < alts.length; i++) if (close(tt, alts[i])) return { result: 'almost', note: 'Almost! Check the spelling: ' + word.english };
+      return { result: 'wrong' };
+    }
+    var tm = typed.match(/^(de|het|een) (.+)$/), tart = tm ? tm[1] : '', tw = tm ? tm[2] : typed, nl = nlAlts(word.dutch);
+    for (i = 0; i < nl.length; i++) if (nl[i].word === tw) {
+      if (tart && tart !== 'een' && nl[i].art && tart !== nl[i].art) return { result: 'almost', note: 'Right word, wrong article. It is ' + word.dutch + '.' };
+      return { result: 'right' };
+    }
+    for (i = 0; i < nl.length; i++) if (close(tw, nl[i].word)) return { result: 'almost', note: 'Almost! Check the spelling: ' + word.dutch };
+    var mine = enAlts(word.english), other = (pool || []).filter(function (p) {
+      return p !== word && (p.type || 'word') === 'word' && nlAlts(p.dutch).some(function (a) { return a.word === tw; }) && enAlts(p.english).some(function (e) { return mine.indexOf(e) >= 0; });
+    })[0];
+    if (other) return { result: 'almost', note: other.dutch + ' also means that. I was asking for ' + word.dutch + '.' };
+    return { result: 'wrong' };
+  }
+  function typedPoints(level, ms) { return BASE[level == null ? 0 : level] * 2 + (ms <= 8000 ? 5 : (ms <= 15000 ? 2 : 0)); }
+  function makeTypeQuestions(chosen, dir, seed) {
+    return chosen.map(function (w) {
+      var r = rng(seed + '|t|' + T.keyOf(w.dutch, w.english));
+      return { d: w.dutch, e: w.english, t: 1, dir: dir === 'mixed' || !dir ? (r() < 0.5 ? 'en2nl' : 'nl2en') : dir };
+    });
   }
 
   // ---- leaderboard: rows are {date, who, points, right, total} ----
@@ -183,5 +238,5 @@
   return { ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
            weekStart: weekStart, parseDrill: parseDrill, makeDrillQuestions: makeDrillQuestions, speedBonus: speedBonus, questionPoints: questionPoints, streakDays: streakDays, scoreRound: scoreRound,
            applyAnswer: applyAnswer, makeQuestions: makeQuestions, pickPractice: pickPractice, pickNormal: pickNormal,
-           pickHandicap: pickHandicap, wordOfWeek: wordOfWeek, leaderboard: leaderboard, battleStates: battleStates, battleWins: battleWins };
+           pickHandicap: pickHandicap, wordOfWeek: wordOfWeek, checkTyped: checkTyped, typedPoints: typedPoints, makeTypeQuestions: makeTypeQuestions, fold: fold, leaderboard: leaderboard, battleStates: battleStates, battleWins: battleWins };
 });

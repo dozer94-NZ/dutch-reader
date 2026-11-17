@@ -116,7 +116,7 @@
       return lv === Number(mode);
     });
     out.sort(function (a, b) {
-      var ra = RANK[a.level || ''] === undefined ? 1.5 : RANK[a.level || ''], rb = RANK[b.level || ''] === undefined ? 1.5 : RANK[b.level || ''];
+      var ra = a.inPack ? -1 : (RANK[a.level || ''] === undefined ? 1.5 : RANK[a.level || '']), rb = b.inPack ? -1 : (RANK[b.level || ''] === undefined ? 1.5 : RANK[b.level || '']);   // words of a switched-on topic pack come first
       return ra - rb || hash(keyOf(a.dutch, a.english)) - hash(keyOf(b.dutch, b.english));
     });
     return out;

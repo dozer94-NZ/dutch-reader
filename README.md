@@ -87,3 +87,12 @@ Teal, cream, mustard, coral and orange, black outlines with hard offset shadows,
 
 ## Version (added 2026-11-17)
 Settings shows `Version <date>.<n>` and checks `version.json` on the server: "up to date", "newer version … available" (with a reload button) or "can't check (offline?)". On every change, bump `VERSION` in `app.js` and `version.json` together (the browser test fails if they differ).
+
+## Packs (added 2026-11-17)
+Words sit in ONE master list (`dutch/vocab/dutch-vocab.csv`). A `packs` column at the end tags each word (semicolon-separated, e.g. `b1;architecture`). `dutch/vocab/packs.csv` (`pack,name,description,kind,default`) lists the packs: `kind` is `level` (a1 to c1, nolevel) or `topic`; `default` says whether it is on at first. Level packs are on by default, topic packs off. Settings has a tick-box per pack with word counts; the choice is kept on the phone (`dr.packs`). At least one pack must stay on. Words with no tag, or no packs.csv, are always on. Words from a switched-on topic pack are sorted and practised first.
+
+## Type it (added 2026-11-17)
+Play tab. Shows the English word and you type the Dutch, or the other way, or mixed. Capitals, accents and punctuation are ignored; a missing de/het/een (or to/the/a) is fine. A wrong de/het, one letter off, or another list word with the same meaning is "Almost" and is not counted. "Show me" is not counted. Right/wrong are saved like any other answer. Right answers pay double points. Score rows use mode `type`; a round with nothing counted sends no score row.
+
+## Version rule
+`VERSION` in `app.js` and `version.json` must be bumped together on every change, and the cache name in `sw.js` when files change.

@@ -126,5 +126,26 @@ eq(st.map(s => s.id + ':' + s.done + ':' + s.winner), ['b1:true:Anna', 'b2:false
 eq(G.battleWins(st), { Anna: 2 }, 'win tally ignores draws');
 eq(G.battleStates([B('b1', 'challenge', 'Noah', 'Anna', 90, 7), B('b1', 'reply', 'Anna', 'Noah', 50, 4), B('b1', 'reply', 'Anna', 'Noah', 500, 9)])[0].winner, 'Noah', 'only the first reply counts');
 
+// Type it
+const R = (w, x, dir, pool) => G.checkTyped(w, x, dir, pool).result;
+const dak = { dutch: 'het dak', english: 'roof' }, plan = { dutch: 'de plattegrond', english: 'floor plan, map' }, bouwen = { dutch: 'bouwen', english: 'to build' }, cafe = { dutch: 'het café', english: 'café, pub' };
+eq([R(dak, 'dak', 'en2nl'), R(dak, 'Het Dak', 'en2nl'), R(dak, '  het   dak ', 'en2nl'), R(dak, 'de dak', 'en2nl'), R(dak, 'dok', 'en2nl'), R(dak, 'huis', 'en2nl')], ['right', 'right', 'right', 'almost', 'wrong', 'wrong'], 'English to Dutch: article optional, wrong article = almost, 3-letter word needs to be exact');
+eq([R(plan, 'plattegrond', 'en2nl'), R(plan, 'plattegrnod', 'en2nl'), R(plan, 'plattegrondd', 'en2nl'), R(plan, 'plattegrnd', 'en2nl'), R(plan, 'platte', 'en2nl')], ['right', 'almost', 'almost', 'almost', 'wrong'], 'one letter off (also swapped letters) = almost; more = wrong');
+eq([R(plan, 'map', 'nl2en'), R(plan, 'The floor plan', 'nl2en'), R(plan, 'floor pln', 'nl2en'), R(plan, 'plan', 'nl2en')], ['right', 'right', 'almost', 'wrong'], 'Dutch to English: any listed meaning counts, "the" ignored');
+eq([R(bouwen, 'build', 'nl2en'), R(bouwen, 'to build', 'nl2en'), R(bouwen, 'To Build', 'nl2en'), R(bouwen, 'biuld', 'nl2en'), R(bouwen, 'destroy', 'nl2en')], ['right', 'right', 'right', 'almost', 'wrong'], '"to" is optional on verbs');
+eq([R(cafe, 'cafe', 'en2nl'), R(cafe, 'Pub', 'nl2en'), R(cafe, "café", 'nl2en')], ['right', 'right', 'right'], 'accents and capitals are ignored');
+eq(R({ dutch: "'s avonds", english: 'in the evening' }, 's avonds', 'en2nl'), 'right', 'apostrophes and punctuation are ignored');
+eq(R(dak, '', 'en2nl'), 'empty', 'empty answer');
+const pool = [dak, { dutch: 'de verdieping', english: 'floor, storey' }, { dutch: 'de vloer', english: 'floor' }];
+eq(R(pool[2], 'verdieping', 'en2nl', pool), 'almost', 'another word with the same meaning is "almost", not wrong');
+eq(R(pool[2], 'dak', 'en2nl', pool), 'wrong', 'a word with a different meaning is wrong');
+eq([G.typedPoints(0, 20000), G.typedPoints(0, 5000), G.typedPoints(2, 10000), G.typedPoints(5, 1000)], [30, 35, 22, 15], 'typed answers pay double the base, plus a speed bonus');
+const tq = G.makeTypeQuestions(Array.from({ length: 40 }, (_, i) => ({ dutch: 'w' + i, english: 'e' + i })), 'mixed', 'seed');
+eq([tq.every(q => q.t === 1), tq.some(q => q.dir === 'en2nl'), tq.some(q => q.dir === 'nl2en'), JSON.stringify(tq) === JSON.stringify(G.makeTypeQuestions(Array.from({ length: 40 }, (_, i) => ({ dutch: 'w' + i, english: 'e' + i })), 'mixed', 'seed'))], [true, true, true, true], 'mixed uses both directions and the same seed gives the same questions');
+eq(G.makeTypeQuestions([{ dutch: 'a', english: 'b' }], 'nl2en', 's')[0].dir, 'nl2en', 'a chosen direction is kept');
+// words of a switched-on topic pack are picked early
+const pw = [{ dutch: 'x1', english: 'a', level: 'B1' }, { dutch: 'x2', english: 'b', level: 'B1', inPack: true }, { dutch: 'x3', english: 'c', level: 'B1' }];
+eq(G.pickPractice(pw, new Map(), '2026-11-17', 's', 1)[0].dutch, 'x2', 'a new word from a switched-on pack is asked before other new B1 words');
+
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
 process.exit(fails ? 1 : 0);
