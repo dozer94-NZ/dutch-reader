@@ -7,6 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', api: 'https://api.github.com' };
+  var VERSION = '2026-11-17.1'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -696,6 +697,18 @@
     loadPeople().then(populateWho);
     $('sInfo').textContent = pendingList().length + ' rating(s) not saved yet.';
     $('settings').showModal();
+    checkVersion();
+  }
+  async function checkVersion() {
+    var el = $('sVersion'), btn = $('sUpdate'), base = 'Version ' + VERSION;
+    btn.hidden = true; el.textContent = base + ' · checking…';
+    try {
+      var r = await fetch('version.json?' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('status ' + r.status);
+      var latest = (await r.json()).version;
+      if (latest === VERSION) el.textContent = base + ' · up to date';
+      else { el.textContent = base + ' · newer version ' + latest + ' is available'; btn.hidden = false; }
+    } catch (e) { el.textContent = base + " · can't check (offline?)"; }
   }
   function applySettings() {
     var newWho = $('sWho').value;
@@ -737,6 +750,7 @@
   $('btnSkip').addEventListener('click', skip);
   $('btnSave').addEventListener('click', save);
   $('btnSettings').addEventListener('click', openSettings);
+  $('sUpdate').addEventListener('click', function () { location.reload(); });
   $('sSave').addEventListener('click', applySettings);
   $('sAddPerson').addEventListener('click', addPerson);
   $('sNewName').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); addPerson(); } });

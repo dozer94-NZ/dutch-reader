@@ -194,6 +194,21 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   const ideas = files['dutch/ideas.csv'] && files['dutch/ideas.csv'].text;
   ok(ideas && ideas.startsWith('date,who,idea\n') && /,Noah,"Please add a quiz, with sounds"\n$/.test(ideas), 'ideas.csv: ' + JSON.stringify(ideas));
   await page.click('#btnSettings');
+  await page.waitForFunction(() => /up to date/.test(document.getElementById('sVersion').textContent), { timeout: 5000 }).catch(() => {});
+  ok(/Version 2026-\d\d-\d\d\.\d+ · up to date/.test(await page.$eval('#sVersion', e => e.textContent)) && await page.$eval('#sUpdate', e => e.hidden), 'settings shows the version and "up to date" when version.json matches');
+  const wantVer = JSON.parse(fs.readFileSync(path.join(appDir, 'version.json'), 'utf8')).version;
+  ok((await page.$eval('#sVersion', e => e.textContent)).includes(wantVer), 'version in app.js equals version.json: ' + wantVer);
+  await page.evaluate(() => { const f = window.fetch; window.fetch = (u, o) => /version\.json/.test(u) ? Promise.resolve(new Response('{"version":"9999"}')) : f(u, o); });
+  await page.keyboard.press('Escape'); await page.click('#btnSettings');
+  await page.waitForFunction(() => /newer version/.test(document.getElementById('sVersion').textContent), { timeout: 5000 }).catch(() => {});
+  ok(/newer version 9999 is available/.test(await page.$eval('#sVersion', e => e.textContent)) && !(await page.$eval('#sUpdate', e => e.hidden)), 'a different version.json shows "newer version" and the update button');
+  await page.evaluate(() => { window.fetch = (u, o) => /version\.json/.test(u) ? Promise.reject(new Error('offline')) : Promise.reject(new Error('x')); });
+  await page.keyboard.press('Escape'); await page.click('#btnSettings');
+  await page.waitForFunction(() => /can't check/.test(document.getElementById('sVersion').textContent), { timeout: 5000 }).catch(() => {});
+  ok(/can't check \(offline\?\)/.test(await page.$eval('#sVersion', e => e.textContent)), 'offline shows "can\'t check"');
+  await page.keyboard.press('Escape');
+  await page.reload({ waitUntil: 'load' });
+  await page.click('#btnSettings');
   ok(!/github/i.test(await pageText(page)), 'no "GitHub" anywhere on the page (all tabs, settings, dialogs)');
   await page.keyboard.press('Escape');
 

@@ -84,3 +84,6 @@ Meaning suggestions: Wiktionary (CC BY-SA). The word levels in the list come fro
 
 ## Look (poster style, added 2026-11-17)
 Teal, cream, mustard, coral and orange, black outlines with hard offset shadows, bold Anton lettering and a matte print grain. Fonts are in `fonts/` (Anton, Oswald; both SIL Open Font License) so the app works offline. The grain strength is the `--grain` value at the top of the v5 block in `style.css` (0 = off, .144 = the "18" setting). The Home scene (sun, hills, waves) is plain CSS shapes.
+
+## Version (added 2026-11-17)
+Settings shows `Version <date>.<n>` and checks `version.json` on the server: "up to date", "newer version … available" (with a reload button) or "can't check (offline?)". On every change, bump `VERSION` in `app.js` and `version.json` together (the browser test fails if they differ).
