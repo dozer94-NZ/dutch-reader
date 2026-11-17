@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', packs: 'dutch/vocab/packs.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.5'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.6'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -264,6 +264,10 @@
     }
     $('cWord').textContent = w.dutch;
     $('bLevel').textContent = w.level || 'no level'; $('bLevel').className = 'chip lv';
+    Array.prototype.slice.call($('bLevel').parentNode.querySelectorAll('.pk')).forEach(function (n) { n.remove(); });
+    packList.filter(function (p) { return p.kind === 'topic' && (w.tags || []).indexOf(p.pack) >= 0; }).forEach(function (p) {
+      var c = h('span', { class: 'chip pk', text: p.name }); $('bLevel').parentNode.insertBefore(c, $('bNow'));
+    });
     var now = T.levelOf(curRow(w), today());
     $('bNow').textContent = now === null ? 'not rated yet' : 'now: ' + T.LEVELS[now].n + ' ' + T.LEVELS[now].short;
     $('bNow').className = 'chip' + (now === null ? '' : ' ok');

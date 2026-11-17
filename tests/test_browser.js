@@ -501,6 +501,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(pt3.includes(' / ' + (NW + archOnly.length).toLocaleString()) && (await txt(page, '#homePacks')).includes('Architecture and construction'), 'switching Architecture on adds its ' + archOnly.length + ' new words: ' + pt3 + ' | ' + await txt(page, '#homePacks'));
   await page.click('#btnSortOpen');
   const firstPackWord = await txt(page, "#cWord");
+  ok(/Architecture and construction/.test(await txt(page, '#card .badges')), 'the card shows the topic pack name: ' + await txt(page, '#card .badges'));
   ok(archNames.has(firstPackWord), 'sorting shows the words of a switched-on topic pack first: ' + firstPackWord);
   await page.click('#sheetClose');
   await page.reload({ waitUntil: 'networkidle0' });

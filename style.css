@@ -161,3 +161,7 @@ dialog.sheet { border-width: 3px 0 0; border-radius: 20px 20px 0 0; }
 #qInput { font-size: 20px; padding: 12px; margin: 8px 0; }
 .fb.muted { color: var(--muted); font-weight: 500; }
 #sPacks label.check { margin: 2px 0; }
+
+.keyhint{display:none;font-size:.85em}
+@media (hover:hover) and (pointer:fine){.keyhint{display:block}}
+.chip.pk{background:#1f5a58;color:#f3e6c4}
