@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', packs: 'dutch/vocab/packs.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.10'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.11'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -754,7 +754,7 @@
         chosen = G.pickHandicap(words, progress, oppProg, today(), seed, G.ROUND);
       } else chosen = G.pickNormal(words, seed, G.ROUND);
       msg.textContent = '';
-      startRound({ kind: 'challenge', flat: true, wager: wager, mode: mode, opp: opp, id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      startRound({ kind: 'challenge', flat: true, maxq: G.BATTLE_SECONDS, wager: wager, mode: mode, opp: opp, id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
                    qs: G.makeQuestions(chosen, words, seed) });
     } catch (e) { msg.className = 'err'; msg.textContent = "Couldn't start the battle (" + e.message + ').'; }
     $('btnChallenge').disabled = false;
@@ -769,28 +769,77 @@
     if (wager > balanceOf(who)) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'You need ' + eur(wager) + ' to match that wager, and you have ' + eur(balanceOf(who)) + '.'; return; }
     var qs; try { qs = JSON.parse(s.questions); } catch (e) { qs = null; }
     if (!qs || !qs.length) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'That challenge has no questions. Ask ' + s.a + ' to send it again.'; return; }
-    startRound({ kind: 'reply', flat: true, wager: wager, target: s.aScore, mode: s.mode, opp: s.a, id: s.id, qs: qs });
+    var legacy = !(typeof qs[0].p === 'number');       // a challenge sent before the timer existed: old scoring, no clock, an evenly rowing ghost
+    var ghost = legacy ? qs.map(function () { return s.aScore / qs.length; }) : qs.map(function (q) { return q.p || 0; });
+    startRound({ kind: 'reply', flat: true, legacy: legacy, maxq: legacy ? G.MAXQ : G.BATTLE_SECONDS, ghost: ghost, wager: wager, target: s.aScore, mode: s.mode, opp: s.a, id: s.id, qs: qs });
   }
 
-  // The bar for a battle: your running score fills towards the score you have to beat (the flag).
-  function renderRace() {
-    var box = $('qRace'); box.hidden = !(round && round.wager);
+  // The battle seen from above: the camera stays on your boat, the water and ropes slide past, the other boat is the ghost of the challenger's real pace.
+  var VS = 3, VC = 125, COLOR_ME = '#e8664a', COLOR_OPP = '#e0a82e';           // pixels per point, half the view height, default boat colours (to be customisable later)
+  function boatSvg(color, cls) {
+    return '<svg class="bv-boat ' + cls + '" viewBox="0 0 60 100" aria-hidden="true"><path d="M30 4C40 22 40 72 30 96C20 72 20 22 30 4Z" fill="' + color + '" stroke="#1a1a1a" stroke-width="3"/><circle cx="30" cy="55" r="6" fill="#1a1a1a"/>' +
+      '<g class="oL"><line x1="30" y1="52" x2="4" y2="58" stroke="#1a1a1a" stroke-width="3"/><rect x="0" y="55" width="8" height="12" fill="#f4e6c3" stroke="#1a1a1a" stroke-width="2"/></g>' +
+      '<g class="oR"><line x1="30" y1="52" x2="56" y2="58" stroke="#1a1a1a" stroke-width="3"/><rect x="52" y="55" width="8" height="12" fill="#f4e6c3" stroke="#1a1a1a" stroke-width="2"/></g></svg>';
+  }
+  function buildView() {
+    var v = $('bView'), duel = !!round.ghost, myX = duel ? 29 : 50;
+    v.textContent = '';
+    var t = document.createElement('div'); t.innerHTML = '<div class="bv-water"></div><div class="bv-bank l"></div><div class="bv-bank r"></div>' +
+      '<div class="bv-rope" style="left:14px"></div><div class="bv-rope" style="left:calc(100% - 14px)"></div>' + (duel ? '<div class="bv-rope" style="left:50%"></div>' : '') +
+      '<div class="bv-fin" style="top:-300px"></div><div class="bv-wake" style="left:' + myX + '%;top:' + (VC + 30) + 'px"></div>' +
+      (duel ? boatSvg(COLOR_OPP, 'ghost bv-g').replace('<svg ', '<svg style="left:71%;top:' + VC + 'px" ') : '') + boatSvg(COLOR_ME, 'bv-me').replace('<svg ', '<svg style="left:' + myX + '%;top:' + VC + 'px" ');
+    while (t.firstChild) v.appendChild(t.firstChild);
+    var me = document.createElement('div'); me.className = 'bv-name'; me.style.left = myX + '%'; me.style.top = '6px'; me.textContent = 'You'; v.appendChild(me);
+    if (duel) { var gn = document.createElement('div'); gn.className = 'bv-name bv-gn'; gn.style.left = '71%'; gn.style.top = (VC - 56) + 'px'; gn.textContent = round.opp; v.appendChild(gn); }
+    round.viewBuilt = true;
+  }
+  function ghostPos() { var n = round.answers.length, s = 0; for (var i = 0; i < n && i < round.ghost.length; i++) s += round.ghost[i]; return s; }
+  function renderRace(stroke) {
+    var box = $('qRace'); box.hidden = !(round && round.flat);
     if (box.hidden) return;
-    var max = round.qs.length * G.MAXQ, t = round.target;
-    if (t == null) { $('raceNote').textContent = eur(2 * round.wager) + ' on the table (' + eur(round.wager) + ' each). The highest score takes it.'; box.querySelector('.racebar').hidden = true; $('raceMe').textContent = ''; $('raceThem').textContent = ''; return; }
-    box.querySelector('.racebar').hidden = false;
-    var me = round.pts, ahead = me > t, best = me + (round.qs.length - round.answers.length) * G.MAXQ;
-    $('raceFill').style.width = Math.min(100, me / max * 100) + '%'; $('raceFill').className = ahead ? 'ahead' : '';
-    $('raceMark').style.left = Math.min(100, t / max * 100) + '%';
-    $('raceNote').textContent = eur(2 * round.wager) + ' on the table (' + eur(round.wager) + ' each). ' + round.opp + ' scored ' + t +
-      (ahead ? ': you are ahead!' : best < t ? ': out of reach now.' : best === t ? ': only a perfect run ties it.' : me === t ? ': level, so far.' : ': you need ' + (t - me + 1) + ' more to beat it.');
-    $('raceMe').textContent = 'You ' + me; $('raceThem').textContent = round.opp + ' ' + t;
+    if (!round.viewBuilt) buildView();
+    var v = $('bView'), me = round.pts, gp = round.ghost ? ghostPos() : 0, track = round.qs.length * round.maxq;
+    Array.prototype.forEach.call(v.querySelectorAll('.bv-water, .bv-rope'), function (n) { n.style.setProperty('--bg', (me * VS) + 'px'); });
+    v.querySelector('.bv-fin').style.top = (VC - (track - me) * VS - 16) + 'px';
+    if (round.ghost) {
+      var gy = VC - (gp - me) * VS, g = v.querySelector('.bv-g'), gn = v.querySelector('.bv-gn'), off = gy < -40 || gy > 290;
+      g.style.top = gy + 'px'; gn.style.top = (gy - 56) + 'px'; g.style.visibility = gn.style.visibility = off ? 'hidden' : 'visible';
+    }
+    if (stroke) { var boats = v.querySelectorAll('.bv-boat'); Array.prototype.forEach.call(boats, function (b) { b.classList.add('row'); setTimeout(function () { b.classList.remove('row'); }, 380); }); }
+    $('raceNote').textContent = round.wager
+      ? eur(2 * round.wager) + ' on the table (' + eur(round.wager) + ' each). ' + (round.target != null ? round.opp + ' scored ' + round.target + '. ' : 'The highest score takes it. ') + 'You ' + me + (round.ghost ? ' · ' + round.opp + ' ' + gp : '')
+      : (round.target != null ? round.opp + ' scored ' + round.target + '. ' : '') + 'You ' + me + (round.ghost ? ' · ' + round.opp + ' ' + gp : '') + '. Highest score wins.';
+  }
+  // 10 seconds a question in a battle (not for older challenges): a right answer pays the seconds left
+  function stopTimer() { if (round && round.tick) { clearInterval(round.tick); round.tick = null; } }
+  function startTimer() {
+    stopTimer();
+    var timed = round && round.flat && !round.legacy; $('bTimer').hidden = !timed; $('tWorth').textContent = '';
+    if (!timed) return;
+    var tick = function () {
+      if (!round || round.locked) return;
+      var ms = Date.now() - round.t0;
+      if (ms >= G.BATTLE_SECONDS * 1000) { timeUp(); return; }
+      $('tFill').style.width = (100 - ms / (G.BATTLE_SECONDS * 10)) + '%'; $('tWorth').textContent = 'Worth ' + G.battlePoints(ms) + ' now';
+    };
+    tick(); round.tick = setInterval(tick, 100);
+  }
+  function timeUp() {
+    if (!round || round.locked) return;
+    round.locked = true; stopTimer();
+    var q = round.qs[round.pos], good = q.a || q.e;
+    round.answers.push({ ok: false, pts: 0, key: T.keyOf(q.d, q.e), timeout: true });
+    Array.prototype.forEach.call($('qOpts').children, function (b, n) { b.disabled = true; if (q.o[n] === good) b.className = 'opt right'; });
+    $('tFill').style.width = '0%'; $('tWorth').textContent = 'Time is up';
+    renderRace(false);
+    $('qFeedback').textContent = "Time is up. It is " + (q.a ? q.a : q.d + ' = ' + q.e); $('qFeedback').className = 'err';
+    $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
   }
   function renderQuestion() {
     var q = round.qs[round.pos]; round.locked = false; round.t0 = Date.now();
     $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + scoreText() +
       (round.opp ? ' · battle vs ' + oppName(round.opp) : '');
-    renderRace();
+    renderRace(false); startTimer();
     var typed = !!q.t;
     $('qOpts').hidden = typed; $('qTypeBox').hidden = !typed;
     if (typed) {
@@ -812,7 +861,8 @@
     if (!round || round.locked) return;
     round.locked = true;
     var q = round.qs[round.pos], k = T.keyOf(q.d, q.e), good = q.a || q.e, ok = q.o[i] === good, ms = Date.now() - round.t0, t0 = today();
-    var lv = T.levelOf(progress.get(k), t0), pts = ok ? G.questionPoints(lv, ms, round.flat) : 0;
+    var lv = T.levelOf(progress.get(k), t0), pts = ok ? (round.flat && !round.legacy ? G.battlePoints(ms) : G.questionPoints(lv, ms, round.flat)) : 0;
+    stopTimer();
     round.answers.push({ ok: ok, pts: pts, key: k }); round.pts += pts;
     var row = progress.get(k) || blankRow({ dutch: q.d, english: q.e }), fields = G.applyAnswer(row, ok, t0);
     pending[k] = { dutch: q.d, english: q.e, kind: 'answer', fields: fields }; store.set('pending.' + who, pending);
@@ -823,7 +873,8 @@
     });
     $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + scoreText() +
       (round.opp ? ' · battle vs ' + oppName(round.opp) : '');
-    renderRace();
+    renderRace(true);
+    $('tWorth').textContent = ok ? '+' + pts : '';
     $('qFeedback').textContent = ok ? 'Right! +' + (round.flat ? pts : eur(pts)) : 'Not quite. ' + (q.a ? q.a : q.d + ' = ' + q.e);
     $('qFeedback').className = ok ? 'ok' : 'err';
     $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
@@ -857,8 +908,9 @@
     round.pos++;
     if (round.pos >= round.qs.length) finishRound(); else renderQuestion();
   }
-  function quitRound() { round = null; showPlay('home'); $('roundMsg').textContent = 'Round stopped, nothing banked. (Answers you gave still updated your word list.)'; if (pendingList().length && token) save(); }
+  function quitRound() { stopTimer(); round = null; showPlay('home'); $('roundMsg').textContent = 'Round stopped, nothing banked. (Answers you gave still updated your word list.)'; if (pendingList().length && token) save(); }
   function finishRound() {
+    stopTimer();
     var t0 = today(), dates = myDates(), flat = !!round.flat, newDay = dates.indexOf(t0) < 0;
     var streak = G.streakDays(dates.concat([t0]), t0);
     var wotwHit = !!round.wotwKey && round.answers.some(function (a) { return a.key === round.wotwKey && a.ok; });
@@ -876,7 +928,7 @@
     if (round.kind === 'flash' && round.missedFirst) lines.push('You went back over ' + round.missedFirst + ' missed ' + (round.missedFirst === 1 ? 'card' : 'cards') + ' until you got them all. Retries earn nothing.');
     if (flat) {
       battleQueue.push({ id: round.id, type: round.kind === 'challenge' ? 'challenge' : 'reply', date: t0, who: who, opponent: round.opp, mode: round.mode || 'normal',
-                         score: String(res.points), right: String(res.right), total: String(res.total), questions: round.kind === 'challenge' ? JSON.stringify(round.qs) : '' });
+                         score: String(res.points), right: String(res.right), total: String(res.total), questions: round.kind === 'challenge' ? JSON.stringify(round.qs.map(function (q, i) { return Object.assign({}, q, { p: round.answers[i] ? round.answers[i].pts : 0 }); })) : '' });
       store.set('battleQ', battleQueue);
       if (round.kind === 'challenge') {
         lines.push(round.opp === '*' ? 'Open challenge sent. The first person to play it takes the wager.' : 'Challenge sent to ' + round.opp + '. They will see it the next time they open the app.');

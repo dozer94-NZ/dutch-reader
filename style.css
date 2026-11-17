@@ -178,12 +178,27 @@ dialog.sheet { border-width: 3px 0 0; border-radius: 20px 20px 0 0; }
 #fCard.no #fMark { color: #b3261e; }
 .fghost { position: absolute; pointer-events: none; z-index: 5; margin: 0; }
 
-/* v9: wager stepper and the race bar */
+/* v9: wager stepper */
 .wagerrow { align-items: center; }
 #bWagerShow { min-width: 64px; text-align: center; font: 400 26px 'Anton', sans-serif; }
-.racebar { position: relative; height: 22px; background: #d9c79a; border: 2px solid var(--ink); border-radius: 8px; overflow: visible; margin: 6px 0 2px; }
-#raceFill { height: 100%; width: 0; background: linear-gradient(90deg, #ffc48a, #ff6a00); border-radius: 5px 0 0 5px; transition: width .35s ease, background .2s; }
-#raceFill.ahead { background: linear-gradient(90deg, #5fb3a8, #1f5a58); }
-#raceMark { position: absolute; top: -6px; bottom: -6px; width: 0; border-left: 3px solid var(--ink); left: 0; }
-#raceMark::after { content: '\2691'; position: absolute; top: -16px; left: -7px; font-size: 14px; }
-.racelabels { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
+
+/* v10: the battle seen from above */
+.btimer { height: 10px; border: 2px solid var(--ink); border-radius: 6px; background: #d9c79a; overflow: hidden; margin: 4px 0 2px; }
+#tFill { height: 100%; width: 100%; background: linear-gradient(90deg, #ffc48a, #ff6a00); }
+.btimerrow { text-align: right; font-size: 14px; min-height: 18px; }
+.bview { position: relative; height: 250px; border: 2.5px solid var(--ink); border-radius: 10px; overflow: hidden; background: #2b7a76; box-shadow: 3px 3px 0 var(--ink); margin: 4px 0; }
+.bv-water { position: absolute; inset: 0; background: repeating-linear-gradient(180deg, rgba(255,255,255,.07) 0 10px, transparent 10px 34px); background-position: 0 var(--bg, 0); }
+.bv-bank { position: absolute; top: 0; bottom: 0; width: 14px; background: #c9b37a; }
+.bv-bank.l { left: 0; border-right: 2.5px solid var(--ink); } .bv-bank.r { right: 0; border-left: 2.5px solid var(--ink); }
+.bv-rope { position: absolute; top: 0; bottom: 0; width: 14px; transform: translateX(-50%);
+  background: radial-gradient(circle at 50% 50%, #d6362b 0 4px, #f4e6c3 4px 5.5px, transparent 5.5px) 0 var(--bg, 0) / 14px 24px repeat-y; }
+.bv-rope::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(244,230,195,.55); transform: translateX(-50%); z-index: -1; }
+.bv-fin { position: absolute; left: 14px; right: 14px; height: 32px; border-top: 3px solid var(--ink); border-bottom: 3px solid var(--ink);
+  background: conic-gradient(#1a1a1a 25%, #f4e6c3 0 50%, #1a1a1a 0 75%, #f4e6c3 0) 0 0 / 16px 16px; }
+.bv-boat { position: absolute; width: 46px; height: 78px; transform: translate(-50%, -50%); transition: top .8s ease-in-out; }
+.bv-boat.ghost { opacity: .85; }
+.bv-boat .oL, .bv-boat .oR { transform-origin: 30px 52px; transition: transform .25s; }
+.bv-boat.row .oL { transform: rotate(26deg); } .bv-boat.row .oR { transform: rotate(-26deg); }
+.bv-wake { position: absolute; width: 3px; height: 34px; background: rgba(244,230,195,.45); transform: translateX(-50%); }
+.bv-name { position: absolute; transform: translateX(-50%); font-size: 12px; background: #fbf3dc; border: 1.5px solid var(--ink); border-radius: 5px; padding: 0 5px; white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { .bv-boat { transition: none; } .bv-boat .oL, .bv-boat .oR { transition: none; } }

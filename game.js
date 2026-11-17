@@ -36,6 +36,8 @@
 
   // ---- points ----
   function speedBonus(ms) { return ms <= 3000 ? 5 : (ms <= 6000 ? 2 : 0); }
+  var BATTLE_SECONDS = 10;                              // battles: 10 seconds a question; a right answer pays the seconds left (10 in the first second, 1 in the last)
+  function battlePoints(ms) { return ms >= BATTLE_SECONDS * 1000 ? 0 : Math.max(1, BATTLE_SECONDS - Math.floor(ms / 1000)); }
   var MAXQ = FLAT + 5;                                  // most a battle question can pay (base + best speed bonus); the race bar uses it
   function questionPoints(level, ms, flat) { return (flat ? FLAT : BASE[level == null ? 0 : level]) + speedBonus(ms); }
 
@@ -239,7 +241,7 @@
     return w;
   }
 
-  return { MAXQ: MAXQ, ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
+  return { BATTLE_SECONDS: BATTLE_SECONDS, battlePoints: battlePoints, MAXQ: MAXQ, ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
            weekStart: weekStart, parseDrill: parseDrill, makeDrillQuestions: makeDrillQuestions, speedBonus: speedBonus, questionPoints: questionPoints, streakDays: streakDays, scoreRound: scoreRound,
            applyAnswer: applyAnswer, makeQuestions: makeQuestions, pickPractice: pickPractice, pickNormal: pickNormal,
            pickHandicap: pickHandicap, wordOfWeek: wordOfWeek, checkTyped: checkTyped, typedPoints: typedPoints, makeTypeQuestions: makeTypeQuestions, fold: fold, leaderboard: leaderboard, battleStates: battleStates, battleWins: battleWins };

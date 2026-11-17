@@ -163,5 +163,9 @@ eq(G.pickPractice(pw, new Map(), '2026-11-17', 's', 1)[0].dutch, 'x2', 'a new wo
   eq([lb.points, lb.rounds, lb.total], [140, 1, 10], 'wager rows move points but are not rounds');
 }
 
+// battles: the clock pays the seconds left
+eq([G.battlePoints(0), G.battlePoints(999), G.battlePoints(1000), G.battlePoints(4500), G.battlePoints(9000), G.battlePoints(9999), G.battlePoints(10000), G.battlePoints(25000)], [10, 10, 9, 6, 1, 1, 0, 0], 'a right answer pays 10 in the first second down to 1 in the last; 10 seconds is too late');
+eq(G.BATTLE_SECONDS, 10, 'ten seconds a question');
+
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
 process.exit(fails ? 1 : 0);

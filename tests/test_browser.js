@@ -307,9 +307,9 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   const eng = {}; wordsT.forEach(w => (eng[w.dutch] = eng[w.dutch] || []).push(w.english));
   const until = async (fn, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await new Promise(r => setTimeout(r, 100)); } return false; };
   const rowsOf = f => files[f] ? M.csvRecords(files[f].text) : [];
-  async function play(page, chooser) { // chooser(i) -> 'right' | 'wrong'
+  async function play(page, chooser, from = 0) { // chooser(i) -> 'right' | 'wrong'; from = first question number (0-based) to answer
     const log = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = from; i < 10; i++) {
       await page.waitForFunction(n => new RegExp('Question ' + n + ' of').test(document.getElementById('qInfo').textContent), { timeout: 5000 }, i + 1);
       const dutch = await txt(page, '#qWord'), opts = await page.$$eval('#qOpts .opt span', e => e.map(x => x.textContent));
       const star = await page.$eval('#qStar', e => !e.hidden), good = o => (eng[dutch] || []).includes(o);
@@ -389,7 +389,8 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   ok(br[0].type === 'challenge' && br[0].who === 'Noah' && br[0].opponent === 'Anna' && br[0].mode === 'normal' && br[0].total === '10' && br[0].right === '10', 'challenge row ok');
   const qsStored = JSON.parse(br[0].questions);
   ok(qsStored.length === 10 && qsStored.every((q, i) => q.d === nlog[i].dutch && JSON.stringify(q.o) === JSON.stringify(nlog[i].opts)), 'the questions are stored exactly as Noah saw them');
-  ok(Number(br[0].score) === sumPts(nlog) && sumPts(nlog) >= 100 && sumPts(nlog) <= 150, 'battle score is flat 10 + speed: ' + br[0].score);
+  ok(Number(br[0].score) === sumPts(nlog) && sumPts(nlog) >= 80 && sumPts(nlog) <= 100, 'battle score: ten questions, up to 10 for each (seconds left): ' + br[0].score);
+  ok(qsStored.every((q, i) => q.p === nlog[i].pts), 'each question stores the points Noah got, so the ghost can row at his pace: ' + JSON.stringify(qsStored.map(q => q.p)));
   ok(await until(() => rowsOf('dutch/scores.csv').length === 5), 'battle row and stake row sent');
   const sc5 = rowsOf('dutch/scores.csv'), stakeRow = sc5.find(r => r.mode === 'wager');
   ok(sc5.find(r => r.mode === 'battle').points === '0', 'a wager battle pays no ordinary points');
@@ -475,11 +476,20 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.select('#bMode', 'normal');
   const battlesBefore = rowsOf('dutch/battles.csv').length;
   await page.click('#btnChallenge');
-  await play(page, () => 'right');
+  await page.waitForFunction(() => /Question 1 of/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  const solo = await page.evaluate(() => ({ ropes: document.querySelectorAll('#bView .bv-rope').length, boats: document.querySelectorAll('#bView .bv-boat').length, mx: document.querySelector('#bView .bv-me').style.left, timer: !document.getElementById('bTimer').hidden }));
+  ok(solo.ropes === 2 && solo.boats === 1 && solo.mx === '50%' && solo.timer, 'the challenger rows alone in one full-width lane with a clock: ' + JSON.stringify(solo));
+  if (process.env.SHOT) { await page.click('#qOpts .opt:nth-child(1)'); await new Promise(r => setTimeout(r, 1200)); await (await page.$('#quiz')).screenshot({ path: '/tmp/shot_solo.png' }); }
+  await new Promise(r => setTimeout(r, 10700));
+  ok(/Time is up/.test(await txt(page, '#qFeedback')) && /Time is up/.test(await txt(page, '#tWorth')) && !(await page.$eval('#qNext', e => e.hidden)), 'after 10 seconds the question is over and shows the answer: ' + await txt(page, '#qFeedback'));
+  await page.click('#qNext');
+  await play(page, () => 'right', 1);
   ok(/Open challenge sent/.test(await txt(page, '#qSummary')) && /You put \u20ac20 on it/.test(await txt(page, '#qSummary')), 'open challenge sent with a 20 point wager: ' + await txt(page, '#qSummary'));
   ok(await until(() => rowsOf('dutch/battles.csv').length === battlesBefore + 1), 'open challenge row sent');
   const open1 = rowsOf('dutch/battles.csv')[battlesBefore];
   ok(open1.opponent === '*' && open1.who === 'Noah', 'the opponent is "anyone"');
+  const o1q = JSON.parse(open1.questions);
+  ok(o1q[0].p === 0 && o1q.slice(1).every(q => q.p >= 1 && q.p <= 10) && Number(open1.score) === o1q.reduce((n, q) => n + q.p, 0) && open1.total === '10' && open1.right === '9', 'the timed-out question is worth 0 and counts as a miss; the rest pay the seconds left: ' + JSON.stringify(o1q.map(q => q.p)));
   ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.id === 'w' + open1.id + 'sNoah' && r.points === '-20')), 'stake of 20 saved');
   await page.click('#qDone');
   ok(/You vs anyone.*\u20ac20 at stake/.test(await txt(page, '#battleLists')), 'Noah sees it waiting: ' + await txt(page, '#battleLists'));
@@ -510,8 +520,10 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.evaluate(() => [...document.querySelectorAll('#battleLists .brow')].find(r => /\u20ac20 each/.test(r.textContent)).querySelector('button').click());
   await page.waitForFunction(() => /Question 1 of/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
   ok(await page.$eval('#qRace', e => !e.hidden) && /\u20ac40 on the table \(\u20ac20 each\)\. Noah scored \d+/.test(await txt(page, '#raceNote')), 'the challengee sees the pot and the score to beat: ' + await txt(page, '#raceNote'));
-  ok(/^You 0/.test(await txt(page, '#raceMe')) && /^Noah \d+/.test(await txt(page, '#raceThem')) && parseFloat(await page.$eval('#raceMark', e => e.style.left)) > 50, 'the bar has a flag where Noah got to');
-  await page.evaluate(() => { const o = document.querySelector('#qOpts .opt'); });
+  const vw = await page.evaluate(() => ({ ropes: document.querySelectorAll('#bView .bv-rope').length, boats: document.querySelectorAll('#bView .bv-boat').length, ghost: !!document.querySelector('#bView .bv-g'), fin: !!document.querySelector('#bView .bv-fin'), timer: !document.getElementById('bTimer').hidden, gx: document.querySelector('#bView .bv-g').style.left, mx: document.querySelector('#bView .bv-me').style.left }));
+  if (process.env.SHOT) { await page.click('#qOpts .opt:nth-child(1)'); await new Promise(r => setTimeout(r, 1200)); await (await page.$('#quiz')).screenshot({ path: '/tmp/shot_duel.png' }); }
+  ok(vw.ropes === 3 && vw.boats === 2 && vw.ghost && vw.fin && vw.timer && vw.mx === '29%' && vw.gx === '71%', 'two lanes seen from above: ropes between and beside them, your boat left, the ghost right, a finish line, a clock: ' + JSON.stringify(vw));
+  ok(/Noah/.test(await txt(page, '#bView')) && /10/.test(await txt(page, '#tWorth')) || /Worth \d+ now/.test(await txt(page, '#tWorth')), 'the clock shows what a right answer is worth now: ' + await txt(page, '#tWorth'));
   const olog = await play(page, i => i < 3 ? 'right' : 'wrong');
   ok(/Noah won this one/.test(await txt(page, '#qSummary')) && /You lose your \u20ac20/.test(await txt(page, '#qSummary')), 'Anna played the open wager and lost it: ' + await txt(page, '#qSummary'));
   ok(await until(() => rowsOf('dutch/scores.csv').some(r => r.id === 'w' + open1.id + 'pNoah' && r.points === '40' && r.mode === 'wager-win')), 'Noah was paid the pot of 40');
@@ -525,6 +537,24 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
   await page.click('#tabPlayBtn');
   ok(!/Open challenge from Noah \(normal/.test(await txt(page, '#battleLists')), 'and nobody else sees it any more');
+  await ctx.close();
+
+  console.log('\n=== A challenge sent before the timer existed still plays (old scoring, no clock, even ghost) ===');
+  const oldQs = JSON.stringify(JSON.parse(open1.questions).map(q => { const o = Object.assign({}, q); delete o.p; return o; })).replace(/"/g, '""');
+  files['dutch/battles.csv'].text += 'bOLD,challenge,2026-11-10,Noah,Anna,normal,120,8,10,"' + oldQs + '"\n';
+  ({ ctx, page, errors } = await newPhone(browser));
+  await page.evaluateOnNewDocument(() => localStorage.setItem('dr.who', '"Anna"'));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  await page.click('#tabPlayBtn');
+  await page.waitForSelector('#battleLists .brow button');
+  const scBefore = rowsOf('dutch/scores.csv').length;
+  await page.evaluate(() => [...document.querySelectorAll('#battleLists .brow')].find(r => /Noah scored 120/.test(r.textContent) && !/€/.test(r.textContent)).querySelector('button').click());
+  await page.waitForFunction(() => /Question 1 of/.test(document.getElementById('qInfo').textContent), { timeout: 5000 });
+  ok(await page.$eval('#bTimer', e => e.hidden) && !!(await page.$('#bView .bv-g')), 'an older challenge has no clock but still shows the ghost');
+  const oldLog = await play(page, () => 'right');
+  ok(/You beat Noah/.test(await txt(page, '#qSummary')) && !/wager|pot/i.test(await txt(page, '#qSummary')), 'old challenge: no wager, plain result: ' + await txt(page, '#qSummary'));
+  ok(await until(() => rowsOf('dutch/scores.csv').length > scBefore) && !rowsOf('dutch/scores.csv').some(r => /bOLD/.test(r.id)), 'and no stake rows for it');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await ctx.close();
 
   console.log('\n=== Verb drill is separate ===');

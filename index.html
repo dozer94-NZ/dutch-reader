@@ -103,14 +103,15 @@
     </div>
     <div id="quiz" class="card" hidden>
       <div class="row"><span id="qInfo" class="grow muted"></span><button id="qQuit" class="btn small" type="button">Stop</button></div>
-      <div id="qRace" hidden>
-        <p id="raceNote" class="muted"></p>
-        <div class="racebar"><div id="raceFill"></div><div id="raceMark"></div></div>
-        <div class="racelabels"><span id="raceMe"></span><span id="raceThem"></span></div>
-      </div>
       <div class="badges"><span id="qStar" class="chip ok" hidden>⭐ word of the week</span></div>
       <div id="qWord" class="word"></div>
       <p id="qPrompt" class="muted" hidden style="text-align:center"></p>
+      <div id="qRace" hidden>
+        <div class="btimer" id="bTimer"><div id="tFill"></div></div>
+        <div class="btimerrow"><span id="tWorth"></span></div>
+        <div id="bView" class="bview" aria-label="Rowing race seen from above"></div>
+        <p id="raceNote" class="muted"></p>
+      </div>
       <div id="qOpts" class="opts"></div>
       <form id="qTypeBox" hidden autocomplete="off">
         <input id="qInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Your answer" placeholder="Type your answer">
