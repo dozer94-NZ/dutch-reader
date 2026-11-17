@@ -208,7 +208,9 @@
     rows.forEach(function (r) {
       if (weekYmd && weekStart(r.date) !== weekYmd) return;
       var o = by[r.who] || (by[r.who] = { who: r.who, points: 0, rounds: 0, right: 0, total: 0 });
-      o.points += parseInt(r.points, 10) || 0; o.rounds++; o.right += parseInt(r.right, 10) || 0; o.total += parseInt(r.total, 10) || 0;
+      o.points += parseInt(r.points, 10) || 0;
+      if (/^wager/.test(r.mode || '')) return;          // stakes and payouts move points but are not rounds
+      o.rounds++; o.right += parseInt(r.right, 10) || 0; o.total += parseInt(r.total, 10) || 0;
     });
     return Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.points - a.points || (a.who < b.who ? -1 : 1); });
   }
@@ -222,8 +224,9 @@
     });
     rows.forEach(function (r) {
       var s = by[r.id];
-      if (r.type === 'reply' && s && !s.done && r.who === s.b) {
-        s.done = true; s.bScore = num(r.score); s.bRight = num(r.right); s.bTotal = num(r.total);
+      // opponent '*' = an open challenge: the first person (not the challenger) to play it takes it
+      if (r.type === 'reply' && s && !s.done && (s.b === '*' ? r.who !== s.a : r.who === s.b)) {
+        s.done = true; s.b = r.who; s.bScore = num(r.score); s.bRight = num(r.right); s.bTotal = num(r.total);
         s.winner = s.aScore !== s.bScore ? (s.aScore > s.bScore ? s.a : s.b) : (s.aRight !== s.bRight ? (s.aRight > s.bRight ? s.a : s.b) : 'draw');
       }
     });

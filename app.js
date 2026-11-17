@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', packs: 'dutch/vocab/packs.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.8'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.9'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -529,7 +529,12 @@
     (battlesCsv ? M.csvRecords(battlesCsv) : []).concat(battleQueue).forEach(function (r) { by.set(r.id + '|' + r.type + '|' + r.who, r); });
     return Array.from(by.values());
   }
-  function myDates() { return scoreRows().filter(function (r) { return r.who === who; }).map(function (r) { return r.date; }); }
+  // Wagers: the challenger's stake is a row in scores.csv (id w<battle>s<name>, negative points); the winner's payout is a row w<battle>p<name>.
+  function balanceOf(name) { return scoreRows().reduce(function (n, r) { return n + (r.who === name ? (parseInt(r.points, 10) || 0) : 0); }, 0); }
+  function stakeOf(s) { var r = scoreRows().filter(function (x) { return x.id === 'w' + s.id + 's' + s.a; })[0]; return r ? Math.max(0, -(parseInt(r.points, 10) || 0)) : 0; }
+  function oppName(o) { return o === '*' ? 'anyone (open challenge)' : o; }
+  function wagerRow(id, kind, name, pts, mode) { return { id: 'w' + id + kind + name, date: today(), who: name, mode: mode, points: String(pts), right: '0', total: '0', wotw: '' }; }
+  function myDates() { return scoreRows().filter(function (r) { return r.who === who && !/^wager/.test(r.mode || ''); }).map(function (r) { return r.date; }); }
   function wotwDone(wk) { return scoreRows().some(function (r) { return r.who === who && r.wotw === '1' && G.weekStart(r.date) === wk; }); }
   async function loadGame() {
     if (token) {
@@ -556,25 +561,29 @@
     $('streakMsg').textContent = 'Daily streak: ' + streak + (streak === 1 ? ' day' : ' days') + ' · This week: ' + (mine ? mine.points : 0) + ' points';
     var sel = $('bOpp'), keep = sel.value; sel.textContent = '';
     people.filter(function (n) { return n !== who; }).forEach(function (n) { var o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
+    var anyone = document.createElement('option'); anyone.value = '*'; anyone.textContent = 'Anyone (open challenge)'; sel.appendChild(anyone);
     if (keep) sel.value = keep;
+    $('bBalance').textContent = 'You have ' + balanceOf(who).toLocaleString() + ' points to wager.';
     $('btnChallenge').disabled = !sel.options.length;
   }
   function renderBattles() {
     var states = G.battleStates(battleRows()), box = $('battleLists'); box.textContent = '';
-    var todo = states.filter(function (s) { return !s.done && s.b === who; }),
+    var todo = states.filter(function (s) { return !s.done && (s.b === who || (s.b === '*' && s.a !== who)); }),
         wait = states.filter(function (s) { return !s.done && s.a === who; }),
         done = states.filter(function (s) { return s.done && (s.a === who || s.b === who); }).slice(-8).reverse();
-    function row(text, btn) { return h('div', { class: 'brow' }, h('span', { class: 'grow', text: text }), btn); }
+    function row(text, btn) { return h('div', { class: 'brow' }, h('span', { class: 'grow', text: text }), btn || null); }
     if (todo.length) box.appendChild(h('h3', { text: 'Waiting for you' }));
     todo.forEach(function (s) {
-      box.appendChild(row(s.a + ' challenged you (' + modeName(s.mode) + ', ' + s.date + ')',
-        h('button', { class: 'btn small primary', type: 'button', text: 'Play', onclick: function () { playReply(s); } })));
+      var st = stakeOf(s), need = st && st > balanceOf(who);
+      box.appendChild(row((s.b === '*' ? 'Open challenge from ' + s.a + ' (' : s.a + ' challenged you (') + modeName(s.mode) + ', ' + s.date + ')' +
+          (st ? ' · wager ' + st + ', winner takes ' + 2 * st + (s.b === '*' ? ', first to play it takes it' : '') : '') + (need ? ' · you need ' + st + ' points' : ''),
+        need ? null : h('button', { class: 'btn small primary', type: 'button', text: 'Play', onclick: function () { playReply(s); } })));
     });
     if (wait.length) box.appendChild(h('h3', { text: 'Waiting for them' }));
-    wait.forEach(function (s) { box.appendChild(row('You vs ' + s.b + ': you scored ' + s.aScore + ' (' + modeName(s.mode) + ', ' + s.date + ')')); });
+    wait.forEach(function (s) { var st = stakeOf(s); box.appendChild(row('You vs ' + (s.b === '*' ? 'anyone' : s.b) + ': you scored ' + s.aScore + ' (' + modeName(s.mode) + ', ' + s.date + ')' + (st ? ' · ' + st + ' points at stake' : ''))); });
     if (done.length) box.appendChild(h('h3', { text: 'Finished' }));
     done.forEach(function (s) {
-      box.appendChild(row(s.a + ' ' + s.aScore + ' – ' + s.bScore + ' ' + s.b + ' · ' + (s.winner === 'draw' ? 'draw' : s.winner + ' won') + ' (' + modeName(s.mode) + ', ' + s.date + ')'));
+      box.appendChild(row(s.a + ' ' + s.aScore + ' – ' + s.bScore + ' ' + s.b + ' · ' + (s.winner === 'draw' ? 'draw' : s.winner + ' won') + ' (' + modeName(s.mode) + ', ' + s.date + ')' + (stakeOf(s) ? ' · wager ' + stakeOf(s) : '')));
     });
     if (!states.length) box.appendChild(h('p', { class: 'muted', text: 'No battles yet. Challenge someone above.' }));
   }
@@ -721,6 +730,10 @@
     if (!opp) { msg.textContent = 'Add a person in Settings first.'; return; }
     if (!token) { msg.className = 'err'; msg.textContent = 'Add your access key in Settings first.'; return; }
     if (!words.length) { msg.className = 'err'; msg.textContent = 'Load the wordlist first.'; return; }
+    var wager = Number($('bWager').value), bal = balanceOf(who);
+    if (!(wager >= 10) || wager % 10 !== 0 || Math.floor(wager) !== wager) { msg.className = 'err'; msg.textContent = 'The wager goes up in tens: 10, 20, 30…'; return; }
+    if (wager > bal) { msg.className = 'err'; msg.textContent = 'You only have ' + bal + ' points. Play a quick round to earn more, or wager less.'; return; }
+    if (opp === '*' && mode === 'handicap') { msg.className = 'err'; msg.textContent = 'A handicap battle needs a named opponent, so it can look at both lists.'; return; }
     var seed = 'b' + Date.now() + Math.random(), chosen;
     $('btnChallenge').disabled = true;
     try {
@@ -732,21 +745,28 @@
         chosen = G.pickHandicap(words, progress, oppProg, today(), seed, G.ROUND);
       } else chosen = G.pickNormal(words, seed, G.ROUND);
       msg.textContent = '';
-      startRound({ kind: 'challenge', flat: true, mode: mode, opp: opp, id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      startRound({ kind: 'challenge', flat: true, wager: wager, mode: mode, opp: opp, id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
                    qs: G.makeQuestions(chosen, words, seed) });
     } catch (e) { msg.className = 'err'; msg.textContent = "Couldn't start the battle (" + e.message + ').'; }
     $('btnChallenge').disabled = false;
   }
-  function playReply(s) {
+  async function playReply(s) {
+    if (s.b === '*') {                                   // an open challenge may have been taken since this screen was drawn
+      try { await loadGame(); } catch (e) {}
+      var fresh = G.battleStates(battleRows()).filter(function (x) { return x.id === s.id; })[0];
+      if (!fresh || fresh.done) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'Someone already played that challenge.'; renderBattles(); return; }
+    }
+    var wager = stakeOf(s);
+    if (wager > balanceOf(who)) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'You need ' + wager + ' points to match that wager, and you have ' + balanceOf(who) + '.'; return; }
     var qs; try { qs = JSON.parse(s.questions); } catch (e) { qs = null; }
     if (!qs || !qs.length) { $('battleMsg').className = 'err'; $('battleMsg').textContent = 'That challenge has no questions. Ask ' + s.a + ' to send it again.'; return; }
-    startRound({ kind: 'reply', flat: true, mode: s.mode, opp: s.a, id: s.id, qs: qs });
+    startRound({ kind: 'reply', flat: true, wager: wager, mode: s.mode, opp: s.a, id: s.id, qs: qs });
   }
 
   function renderQuestion() {
     var q = round.qs[round.pos]; round.locked = false; round.t0 = Date.now();
     $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points' +
-      (round.opp ? ' · battle vs ' + round.opp : '');
+      (round.opp ? ' · battle vs ' + oppName(round.opp) : '');
     var typed = !!q.t;
     $('qOpts').hidden = typed; $('qTypeBox').hidden = !typed;
     if (typed) {
@@ -778,7 +798,7 @@
       if (q.o[n] === good) b.className = 'opt right'; else if (n === i) b.className = 'opt wrong';
     });
     $('qInfo').textContent = 'Question ' + (round.pos + 1) + ' of ' + round.qs.length + ' · ' + round.pts + ' points' +
-      (round.opp ? ' · battle vs ' + round.opp : '');
+      (round.opp ? ' · battle vs ' + oppName(round.opp) : '');
     $('qFeedback').textContent = ok ? 'Right! +' + pts : 'Not quite. ' + (q.a ? q.a : q.d + ' = ' + q.e);
     $('qFeedback').className = ok ? 'ok' : 'err';
     $('qNext').textContent = round.pos + 1 >= round.qs.length ? 'Finish' : 'Next →'; $('qNext').hidden = false; $('qFlag').hidden = false;
@@ -820,9 +840,9 @@
     var res = G.scoreRound(round.answers, { flat: flat, wotwHit: wotwHit, newDay: newDay, streak: streak });
     var rid = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     if (res.total) scoreQueue.push({ id: rid, date: t0, who: who, mode: round.kind === 'practice' ? 'practice' : (round.kind === 'flash' ? 'flash' : round.kind === 'type' ? 'type' : round.kind === 'drill' ? 'drill' : (round.mode === 'handicap' ? 'handicap' : 'battle')),
-                      points: String(res.points), right: String(res.right), total: String(res.total), wotw: wotwHit ? '1' : '' });
+                      points: round.wager ? '0' : String(res.points), right: String(res.right), total: String(res.total), wotw: wotwHit ? '1' : '' });
     store.set('scoreQ', scoreQueue);
-    var lines = [res.total ? 'You got ' + res.right + ' of ' + res.total + ' right and scored ' + res.points + ' points.' : 'No answers were counted this round, so no points.'], p = res.parts;
+    var lines = [res.total ? 'You got ' + res.right + ' of ' + res.total + ' right and scored ' + res.points + ' points' + (round.wager ? ' in the battle.' : '.') : 'No answers were counted this round, so no points.'], p = res.parts;
     if (!flat && res.total) {
       if (p.perfect) lines.push('Perfect round: +' + p.perfect);
       if (p.wotw) lines.push('Word of the week: +' + p.wotw);
@@ -833,10 +853,22 @@
       battleQueue.push({ id: round.id, type: round.kind === 'challenge' ? 'challenge' : 'reply', date: t0, who: who, opponent: round.opp, mode: round.mode || 'normal',
                          score: String(res.points), right: String(res.right), total: String(res.total), questions: round.kind === 'challenge' ? JSON.stringify(round.qs) : '' });
       store.set('battleQ', battleQueue);
-      if (round.kind === 'challenge') lines.push('Challenge sent to ' + round.opp + '. They will see it the next time they open the app.');
+      if (round.kind === 'challenge') {
+        lines.push(round.opp === '*' ? 'Open challenge sent. The first person to play it takes the wager.' : 'Challenge sent to ' + round.opp + '. They will see it the next time they open the app.');
+        if (round.wager) { scoreQueue.push(wagerRow(round.id, 's', who, -round.wager, 'wager')); store.set('scoreQ', scoreQueue); lines.push('You put ' + round.wager + ' points on it. If they beat you, they take ' + 2 * round.wager + '.'); }
+      }
       else {
-        var s = G.battleStates(battleRows()).filter(function (b) { return b.id === round.id; })[0];
-        if (s && s.done) lines.push(s.winner === 'draw' ? 'It is a draw with ' + round.opp + '!' : (s.winner === who ? 'You beat ' + round.opp + '! ' : round.opp + ' won this one. ') + s.aScore + ' – ' + s.bScore);
+        var s = G.battleStates(battleRows()).filter(function (b) { return b.id === round.id; })[0], w = round.wager;
+        if (w && s && s.done && s.b !== who) lines.push('Someone else played this open challenge first, so nothing was staked.');
+        else if (w && s && s.done) {
+          var pot = 2 * w, rows = [wagerRow(round.id, 's', who, -w, 'wager')];
+          if (s.winner === 'draw') rows.push(wagerRow(round.id, 'p', s.a, w, 'wager-draw'), wagerRow(round.id, 'p', who, w, 'wager-draw'));
+          else rows.push(wagerRow(round.id, 'p', s.winner, pot, 'wager-win'));
+          rows.forEach(function (r) { scoreQueue.push(r); }); store.set('scoreQ', scoreQueue);
+          lines.push(s.winner === 'draw' ? 'It is a draw with ' + round.opp + '! Both wagers (' + w + ') go back.'
+            : s.winner === who ? 'You beat ' + round.opp + '! ' + s.bScore + ' – ' + s.aScore + '. You win the pot: ' + pot + ' points (+' + w + ' on your wager).'
+            : round.opp + ' won this one, ' + s.aScore + ' – ' + s.bScore + '. You lose your ' + w + ' points.');
+        } else if (s && s.done) lines.push(s.winner === 'draw' ? 'It is a draw with ' + round.opp + '!' : (s.winner === who ? 'You beat ' + round.opp + '! ' : round.opp + ' won this one. ') + s.aScore + ' – ' + s.bScore);
       }
     }
     $('qSummary').textContent = ''; lines.forEach(function (l) { $('qSummary').appendChild(h('p', { text: l })); });

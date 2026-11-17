@@ -81,11 +81,13 @@
       </div>
       <div class="card">
         <h2 style="margin-top:0">⚔ Battles</h2>
-        <p class="muted">You play 10 questions now. Your friend plays the same ones whenever they like. Highest score wins.</p>
+        <p class="muted">You play 10 questions now. Your friend plays the same ones whenever they like. Highest score wins the pot: you set a wager (in tens), they match it, and the winner takes both. A draw gives the wagers back. "Anyone" is an open challenge: the first person to play it takes the wager, then it disappears.</p>
         <div class="row">
           <label class="grow">Challenge <select id="bOpp"></select></label>
           <label class="grow">Kind <select id="bMode"><option value="normal">Normal</option><option value="handicap">Handicap</option></select></label>
         </div>
+        <label>Wager (points, in tens) <input id="bWager" type="number" inputmode="numeric" min="10" step="10" value="40"></label>
+        <p id="bBalance" class="muted"></p>
         <p class="muted">Handicap: only words neither of you knows yet, so nobody has a head start.</p>
         <button id="btnChallenge" class="btn primary" type="button">Start battle</button>
         <p id="battleMsg" class="muted"></p>

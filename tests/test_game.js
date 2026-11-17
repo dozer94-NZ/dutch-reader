@@ -147,5 +147,21 @@ eq(G.makeTypeQuestions([{ dutch: 'a', english: 'b' }], 'nl2en', 's')[0].dir, 'nl
 const pw = [{ dutch: 'x1', english: 'a', level: 'B1' }, { dutch: 'x2', english: 'b', level: 'B1', inPack: true }, { dutch: 'x3', english: 'c', level: 'B1' }];
 eq(G.pickPractice(pw, new Map(), '2026-11-17', 's', 1)[0].dutch, 'x2', 'a new word from a switched-on pack is asked before other new B1 words');
 
+// Wagers: open challenges and ledger rows
+{
+  const ch = { id: 'b1', type: 'challenge', date: '2026-11-17', who: 'Noah', opponent: '*', mode: 'normal', score: '120', right: '10', total: '10', questions: '[]' };
+  const rp = (who, score) => ({ id: 'b1', type: 'reply', date: '2026-11-17', who, opponent: 'Noah', mode: 'normal', score: String(score), right: '5', total: '10', questions: '' });
+  let st = G.battleStates([ch])[0];
+  eq([st.done, st.b], [false, '*'], 'an open challenge waits for anyone');
+  st = G.battleStates([ch, rp('Noah', 130)])[0];
+  eq(st.done, false, 'the challenger cannot answer their own open challenge');
+  st = G.battleStates([ch, rp('Anna', 90), rp('Sam', 200)])[0];
+  eq([st.done, st.b, st.winner, st.bScore], [true, 'Anna', 'Noah', 90], 'the first person to play takes it; later replies are ignored');
+  st = G.battleStates([{ ...ch, opponent: 'Anna' }, rp('Sam', 10)])[0];
+  eq(st.done, false, 'a named challenge still only accepts the named person');
+  const lb = G.leaderboard([{ who: 'Noah', date: '2026-11-17', mode: 'practice', points: '100', right: '10', total: '10' }, { who: 'Noah', date: '2026-11-17', mode: 'wager', points: '-40', right: '0', total: '0' }, { who: 'Noah', date: '2026-11-17', mode: 'wager-win', points: '80', right: '0', total: '0' }], null)[0];
+  eq([lb.points, lb.rounds, lb.total], [140, 1, 10], 'wager rows move points but are not rounds');
+}
+
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
 process.exit(fails ? 1 : 0);
