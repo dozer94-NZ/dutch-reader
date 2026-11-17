@@ -50,14 +50,14 @@
       </div>
       <div class="card">
         <h2 style="margin-top:0">Quick round</h2>
-        <p class="muted">10 questions: pick the right meaning. Words you find hard pay more points.</p>
+        <p class="muted">10 questions: pick the right meaning. Words you find hard pay more.</p>
         <button id="btnRound" class="btn primary" type="button">Start a round</button>
         <p id="streakMsg" class="muted"></p>
         <p id="roundMsg" class="muted"></p>
       </div>
       <div class="card">
         <h2 style="margin-top:0">Flashcards</h2>
-        <p class="muted">10 cards. Tap a card to flip it, then swipe right if you got it, left if not. Missed cards come back at the end until you get them all. Retries earn no points, and you need to finish the cards to bank your points.</p>
+        <p class="muted">10 cards. Tap a card to flip it, then swipe right if you got it, left if not. Missed cards come back at the end until you get them all. Retries earn nothing, and you need to finish the cards to bank what you won.</p>
         <label>Direction
           <select id="fDir"><option value="mixed">Mixed</option><option value="nl2en">Dutch to English</option><option value="en2nl">English to Dutch</option></select>
         </label>
@@ -66,7 +66,7 @@
       </div>
       <div class="card">
         <h2 style="margin-top:0">Type it</h2>
-        <p class="muted">10 words: type the answer instead of picking it. Typing is worth double points. Capitals and accents don't matter, and one wrong letter is "Almost" and isn't counted.</p>
+        <p class="muted">10 words: type the answer instead of picking it. Typing pays double. Capitals and accents don't matter, and one wrong letter is "Almost" and isn't counted.</p>
         <label>Direction
           <select id="tDir"><option value="mixed">Mixed</option><option value="en2nl">English to Dutch</option><option value="nl2en">Dutch to English</option></select>
         </label>
@@ -86,7 +86,14 @@
           <label class="grow">Challenge <select id="bOpp"></select></label>
           <label class="grow">Kind <select id="bMode"><option value="normal">Normal</option><option value="handicap">Handicap</option></select></label>
         </div>
-        <label>Wager (points, in tens) <input id="bWager" type="number" inputmode="numeric" min="10" step="10" value="40"></label>
+        <div class="row wagerrow">
+          <span class="grow">Wager (each)</span>
+          <button id="bMinus" class="btn small" type="button" aria-label="Lower the wager by 10">−</button>
+          <output id="bWagerShow" aria-live="polite">€40</output>
+          <button id="bPlus" class="btn small" type="button" aria-label="Raise the wager by 10">+</button>
+        </div>
+        <input id="bWager" type="hidden" value="40">
+        <p id="bPot" class="muted"></p>
         <p id="bBalance" class="muted"></p>
         <p class="muted">Handicap: only words neither of you knows yet, so nobody has a head start.</p>
         <button id="btnChallenge" class="btn primary" type="button">Start battle</button>
@@ -96,6 +103,11 @@
     </div>
     <div id="quiz" class="card" hidden>
       <div class="row"><span id="qInfo" class="grow muted"></span><button id="qQuit" class="btn small" type="button">Stop</button></div>
+      <div id="qRace" hidden>
+        <p id="raceNote" class="muted"></p>
+        <div class="racebar"><div id="raceFill"></div><div id="raceMark"></div></div>
+        <div class="racelabels"><span id="raceMe"></span><span id="raceThem"></span></div>
+      </div>
       <div class="badges"><span id="qStar" class="chip ok" hidden>⭐ word of the week</span></div>
       <div id="qWord" class="word"></div>
       <p id="qPrompt" class="muted" hidden style="text-align:center"></p>

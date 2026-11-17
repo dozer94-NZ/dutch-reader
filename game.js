@@ -36,6 +36,7 @@
 
   // ---- points ----
   function speedBonus(ms) { return ms <= 3000 ? 5 : (ms <= 6000 ? 2 : 0); }
+  var MAXQ = FLAT + 5;                                  // most a battle question can pay (base + best speed bonus); the race bar uses it
   function questionPoints(level, ms, flat) { return (flat ? FLAT : BASE[level == null ? 0 : level]) + speedBonus(ms); }
 
   // consecutive days ending today (or yesterday, if today has no round yet)
@@ -238,7 +239,7 @@
     return w;
   }
 
-  return { ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
+  return { MAXQ: MAXQ, ROUND: ROUND, BASE: BASE, FLAT: FLAT, WOTW_BONUS: WOTW_BONUS, PERFECT_BONUS: PERFECT_BONUS, hash: hash, rng: rng, shuffle: shuffle,
            weekStart: weekStart, parseDrill: parseDrill, makeDrillQuestions: makeDrillQuestions, speedBonus: speedBonus, questionPoints: questionPoints, streakDays: streakDays, scoreRound: scoreRound,
            applyAnswer: applyAnswer, makeQuestions: makeQuestions, pickPractice: pickPractice, pickNormal: pickNormal,
            pickHandicap: pickHandicap, wordOfWeek: wordOfWeek, checkTyped: checkTyped, typedPoints: typedPoints, makeTypeQuestions: makeTypeQuestions, fold: fold, leaderboard: leaderboard, battleStates: battleStates, battleWins: battleWins };
