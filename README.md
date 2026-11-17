@@ -3,9 +3,13 @@
 A small web app (installable on Android from Chrome) for the Dutch word list in the private
 `learning-progress` repo.
 
-- **Sort words**: one word at a time, tap how well you know it, 0 to 5 (six levels). Your rating is
-  saved into your own progress file (`dutch/noah.csv` or `dutch/anna.csv`), changing only the lines of
-  the words you rated.
+- **Home and Sort words**: the Home tab has one orange bar, "Sort your words", that fills as you rate words and
+  shows `rated / total · N left`. Tap it and the sorting sheet slides up: one word at a time, tap how well you
+  know it on one row of five buttons, 0 to 4 (pale to bright orange). The meaning stays hidden until you tap
+  "Show meaning" (or press space). Keys 0 to 4 also work, Backspace undoes. Level 5 ("Never need to practise
+  again") is off by default; switch it on under "More options" in the sheet. That menu also has the re-check
+  modes. Your rating is saved into your own progress file (`dutch/noah.csv` or `dutch/anna.csv`), changing only
+  the lines of the words you rated.
 - **Add a word**: type a Dutch word and its meaning (or ask Wiktionary for a suggestion). "Send" appends it
   to `dutch/inbox.csv`. A later tool merges inbox words into the word list and both progress files.
 

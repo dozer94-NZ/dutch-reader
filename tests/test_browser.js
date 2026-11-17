@@ -22,12 +22,29 @@ let fails = 0;
 const ok = (c, m) => { console.log(c ? 'ok   ' : 'FAIL ', m); if (!c) fails++; };
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
 
-async function newPhone(browser) {
+async function newPhone(browser, opts = {}) {
   const ctx = await browser.createBrowserContext(), page = await ctx.newPage(), errors = [];
   await page.setViewport({ width: 400, height: 900 });
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error' && !/status of (404|409|422)|ERR_FAILED/.test(m.text())) errors.push(m.text()); });
-  await page.evaluateOnNewDocument(() => { if (!localStorage.getItem('dr.token')) { localStorage.setItem('dr.token', '"fake-token"'); localStorage.setItem('dr.who', '"Noah"'); } });
+  await page.evaluateOnNewDocument(five => { if (!localStorage.getItem('dr.token')) { localStorage.setItem('dr.token', '"fake-token"'); localStorage.setItem('dr.who', '"Noah"'); if (five) localStorage.setItem('dr.showFive', 'true'); } }, opts.five !== false);
+  // The sorting screen is a sheet on the Home tab. These wrappers open it when a step needs it and close it when a step
+  // needs something behind it, the way a person would, so the older steps below read the same as before.
+  const oClick = page.click.bind(page), oSelect = page.select.bind(page), oPress = page.keyboard.press.bind(page.keyboard);
+  const isOpen = () => page.$eval('#sortSheet', e => e.open);
+  const toHome = async () => { if (await page.$eval('#tabHome', e => e.hidden)) await oClick('#tabHomeBtn'); };
+  const ensure = async open => { if ((await isOpen()) !== open) { if (open) await toHome(); await oClick(open ? '#btnSortOpen' : '#sheetClose'); } };
+  const IN_SHEET = /^#(btnSave|btnBack|btnSkip|btnReveal|mode|showEn|showFive|rate|card)\b/;
+  page.click = async (sel, ...a) => {
+    if (sel === '#btnSortOpen') { await toHome(); return oClick(sel, ...a); }
+    if (sel === '#sheetClose' || /^#(flag|btnFlag)/.test(sel)) return oClick(sel, ...a);
+    await ensure(IN_SHEET.test(sel)); return oClick(sel, ...a);
+  };
+  page.select = async (sel, ...a) => { if (IN_SHEET.test(sel)) await ensure(true); return oSelect(sel, ...a); };
+  page.keyboard.press = async (k, ...a) => {   // sorting keys only count when nobody is typing in a text box (page.type presses keys too)
+    if (/^([0-5]| |Backspace|ArrowRight)$/.test(k) && !(await page.evaluate(() => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)))) await ensure(true);
+    return oPress(k, ...a);
+  };
   await page.setRequestInterception(true);
   page.on('request', req => {
     const u = req.url(), m = req.method();
@@ -158,7 +175,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.waitForFunction(() => document.getElementById('queueBar').hidden, { timeout: 10000 });
   ok(/^dutch,english,phrase,who,date,source\nzonnebrand,A sunburn\.,,Noah,.*unreviewed\)\n$/.test(files['dutch/inbox.csv'].text), 'inbox.csv: ' + JSON.stringify(files['dutch/inbox.csv'].text));
   console.log('\n=== Flag an issue and pitch an idea ===');
-  await page.click('#tabSortBtn');
+  await page.click('#btnSortOpen');
   const flagged = await txt(page, '#cWord');
   await page.click('#btnFlag'); await page.waitForSelector('#flagDlg[open]');
   await page.select('#flagType', 'wrong way round'); await page.type('#flagNote', 'check this, "english" first?');
@@ -192,6 +209,38 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.waitForFunction(() => /Saved 1/.test(document.getElementById('saveMsg').textContent), { timeout: 10000 });
   ok(files['dutch/anna.csv'].text !== original.anna && diffLines(original.anna, files['dutch/anna.csv'].text).length === 1, 'one line changed in anna.csv');
   ok(puts[puts.length - 1].message.includes('(Anna)'), 'commit names Anna');
+  ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
+  await ctx.close();
+
+  console.log('\n=== Home button and sorting sheet (fresh phone, level 5 off) ===');
+  ({ ctx, page, errors } = await newPhone(browser, { five: false }));
+  await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
+  const progNow = new Map(M.csvRecords(files['dutch/noah.csv'].text).map(r => [T.keyOf(r.dutch, r.english), r])), ratedNow = vocab.filter(w => T.levelOf(progNow.get(T.keyOf(w.dutch, w.english)), today) !== null).length;   // Noah's file as it is now, after the earlier steps
+  ok(await page.$eval('#sortSheet', e => !e.open), 'the sheet is closed when the app opens');
+  ok(await page.$eval('#tabHome', e => !e.hidden) && !(await page.$('#tabSortBtn')), 'Home is the first tab and there is no Sort tab');
+  const pt = await txt(page, '#progText'), want = Number(NW).toLocaleString();
+  ok(pt.startsWith(ratedNow.toLocaleString() + ' / ' + want) && pt.includes((NW - ratedNow).toLocaleString() + ' left'), 'Home button shows rated / total and how many are left: ' + pt);
+  const fillBefore = await page.$eval('#progFill', e => parseFloat(e.style.width));
+  ok(Math.abs(fillBefore - Math.max(ratedNow / NW * 100, ratedNow ? 4 : 0)) < 0.01, 'the bar is filled to ' + fillBefore.toFixed(1) + '%');
+  await page.click('#btnSortOpen');
+  ok(await page.$eval('#sortSheet', e => e.open), 'tapping the button opens the sheet');
+  ok((await page.$$('#rate button')).length === 5 && !(await txt(page, '#rate')).includes('5'), 'only levels 0 to 4 are visible');
+  ok((await txt(page, '#rateLabels')).includes('Learned') && !(await txt(page, '#rateLabels')).includes('Never again'), 'labels under the five buttons');
+  ok((await page.$eval('#cEng', e => e.textContent)) === '', 'meaning hidden until tapped');
+  const firstWord = await txt(page, '#cWord');
+  await page.keyboard.press('5');
+  ok(await txt(page, '#cWord') === firstWord, 'key 5 does nothing while level 5 is off');
+  ok(/Learned/.test(await txt(page, '#rateLabels')), 'rating row still there');
+  await page.keyboard.press('2'); await page.keyboard.press('0');
+  ok(/2 rated this session/.test(await txt(page, '#sortMsg')), 'rating works from the sheet: ' + await txt(page, '#sortMsg'));
+  await page.click('#sheetClose');
+  const pt2 = await txt(page, '#progText');
+  ok(pt2.startsWith((ratedNow + 2).toLocaleString() + ' / ' + want) && pt2.includes((NW - ratedNow - 2).toLocaleString() + ' left'), 'closing the sheet updates the button: ' + pt2);
+  ok((await page.$eval('#progFill', e => parseFloat(e.style.width))) > fillBefore, 'the bar grew');
+  await page.click('#btnSortOpen');
+  await page.$eval('#showFive', e => { e.checked = true; e.dispatchEvent(new Event('change')); });
+  ok((await page.$$('#rate button')).length === 6 && (await txt(page, '#rateLabels')).includes('Never again'), 'switching level 5 on adds a sixth button');
+  await page.click('#sheetClose');
   ok(errors.length === 0, 'no console/page errors' + (errors.length ? ': ' + errors.join(' | ') : ''));
   await ctx.close();
 
@@ -251,7 +300,8 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
 
   ({ ctx, page, errors } = await newPhone(browser));
   await page.goto('http://localhost:8766/', { waitUntil: 'networkidle0' });
-  ok((await txt(page, '#rate')).includes('Vaguely recognise it') && (await txt(page, '#rate')).includes('Never seen it') && (await txt(page, '#rate')).includes('Never practise again'), 'rating buttons use the new names');
+  const lab = await txt(page, '#rateLabels');
+  ok(lab.includes('Never seen it') && lab.includes('Vaguely') && lab.includes('Never again'), 'rating labels use the new names: ' + lab);
   ok((await page.$eval('#mode', e => e.textContent)).includes('5 Never need to practise again'), 'the re-check list uses the new names');
   await page.click('#tabPlayBtn');
   ok((await txt(page, '#wotwBox')).includes(wotw.dutch), 'word of the week shown: ' + wotw.dutch);
@@ -400,7 +450,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   let seenDrill = false;
   for (let t = 0; t < 3; t++) { await page.click('#tabPlayBtn'); await page.click('#btnRound'); const l = await play(page, () => 'right'); if (l.some(x => x.opts.some(o => / \u2014 /.test(o)))) seenDrill = true; await page.click('#qDone'); }
   ok(!seenDrill, 'three quick rounds: no verb drill row among the options');
-  await page.click('#tabSortBtn'); await page.select('#mode', 'all');
+  await page.click('#btnSortOpen'); await page.select('#mode', 'all');
   ok(new RegExp('\\b' + NW + ' left in this set').test(await txt(page, '#sortMsg')), 'sorting "all words" offers exactly the ' + NW + ' words, no verb drill rows: ' + await txt(page, '#sortMsg'));
   await ctx.close();
 

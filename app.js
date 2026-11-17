@@ -161,10 +161,18 @@
 
   // ---------- Sort words ----------
   var rateBox = $('rate');
-  T.LEVELS.forEach(function (l) {
-    rateBox.appendChild(h('button', { type: 'button', 'data-n': String(l.n), onclick: function () { rate(l.n); } },
-      h('b', { text: String(l.n) }), h('span', { text: l.short })));
-  });
+  var TINY = ['Never seen it', 'Vaguely', 'Recognised', 'Familiar', 'Learned', 'Never again'];
+  var showFive = !!store.get('showFive', false);
+  function buildRate() {                                  // levels 0 to 4 always; 5 only when switched on in More options
+    var n = showFive ? 6 : 5;
+    rateBox.textContent = ''; $('rateLabels').textContent = '';
+    rateBox.className = 'rate' + (showFive ? ' five' : ''); $('rateLabels').className = 'ratelabels' + (showFive ? ' five' : '');
+    for (var i = 0; i < n; i++) (function (i) {
+      rateBox.appendChild(h('button', { type: 'button', 'data-n': String(i), 'aria-label': i + ' ' + T.LEVELS[i].name, text: String(i), onclick: function () { rate(i); } }));
+      $('rateLabels').appendChild(h('span', { text: TINY[i] }));
+    })(i);
+  }
+  buildRate();
   function startSession() {
     var m = $('mode').value;
     session.queue = T.buildQueue(words, progress, (m === 'unrated' || m === 'all') ? m : Number(m), today());
@@ -176,6 +184,7 @@
     var n = pendingList().length;
     $('saveMsg').textContent = saving ? 'Saving…' : (n ? n + (n === 1 ? ' rating' : ' ratings') + ' waiting to save' : (words.length ? 'All saved' : ''));
     $('btnSave').disabled = saving || !n;
+    renderHome();
     var f = issueQueue.length;
     if (f) $('saveMsg').textContent += ' · ' + f + (f === 1 ? ' flag' : ' flags') + ' waiting to send';
   }
@@ -187,8 +196,10 @@
       ? session.done + ' rated this session · ' + rated.toLocaleString() + ' of ' + words.length.toLocaleString() + ' rated in total' +
         (w ? ' · ' + (session.queue.length - session.pos) + ' left in this set' : '')
       : '';
+    $('sheetCount').textContent = words.length ? (session.queue.length - session.pos).toLocaleString() + ' left' : '';
     if (!w) {
       if (words.length) $('sortMsg').textContent += session.queue.length ? ' · This set is finished.' : ' · Nothing to show in this set.';
+      if (words.length && $('mode').value === 'unrated' && ratedTotal() >= words.length) $('sortMsg').textContent = 'All sorted. Well done!';
       updateCounts(); return;
     }
     $('cWord').textContent = w.dutch;
@@ -203,9 +214,29 @@
     $('btnReveal').hidden = showEn;
     updateCounts();
   }
+  // the Home button: a loading bar that fills as words get sorted
+  function renderHome() {
+    var total = words.length, rated = total ? ratedTotal() : 0, left = total - rated;
+    $('btnSortOpen').disabled = !total;
+    $('progTitle').textContent = total && !left ? 'All sorted' : 'Sort your words';
+    $('progText').textContent = total ? rated.toLocaleString() + ' / ' + total.toLocaleString() + (left ? ' \u00b7 ' + left.toLocaleString() + ' left' : ' \u00b7 well done') : 'No word list yet';
+    var pc = total ? rated / total * 100 : 0;
+    $('progFill').style.width = (pc > 0 ? Math.max(pc, 4) : 0) + '%';
+    $('homeHint').textContent = total && left ? 'Tap to rate the words you haven\'t sorted yet. Each tap saves your rating, and you can stop any time.' : (total ? 'Tap to re-check words you have already rated.' : '');
+    var n = pendingList().length;
+    $('homeSave').textContent = n ? n + (n === 1 ? ' rating' : ' ratings') + ' waiting to save' : '';
+  }
+  function openSheet() {
+    if (!words.length) return;
+    if (ratedTotal() >= words.length && $('mode').value === 'unrated') { $('mode').value = 'all'; startSession(); }
+    else if (session.pos >= session.queue.length && $('mode').value === 'unrated') startSession();
+    $('sortSheet').showModal(); showCard();
+  }
+  function closeSheet() { if ($('sortSheet').open) $('sortSheet').close(); }
   function reveal() { var w = session.queue[session.pos]; if (!w) return; $('cEng').textContent = w.english; $('btnReveal').hidden = true; }
   function rate(n) {
     var w = session.queue[session.pos]; if (!w) return;
+    if (n > 4 && !showFive) return;
     var k = T.keyOf(w.dutch, w.english), prev = progress.get(k), entry = { dutch: w.dutch, english: w.english, kind: 'level', level: n, date: today() };
     session.undo.push({ key: k, prevRow: prev ? Object.assign({}, prev) : null, prevPending: pending[k], entry: entry });
     pending[k] = entry; store.set('pending.' + who, pending);
@@ -655,7 +686,7 @@
   // ---------- tabs, settings, start ----------
   function tab(which) {
     if (which === 'play' || which === 'board') loadGame();
-    ['sort', 'play', 'board', 'add', 'ideas'].forEach(function (t) {
+    ['home', 'play', 'board', 'add', 'ideas'].forEach(function (t) {
       var cap = t.charAt(0).toUpperCase() + t.slice(1);
       $('tab' + cap).hidden = which !== t; $('tab' + cap + 'Btn').className = 'tab' + (which === t ? ' on' : '');
     });
@@ -676,7 +707,13 @@
     loadAll();
   }
 
-  $('tabSortBtn').addEventListener('click', function () { tab('sort'); });
+  $('tabHomeBtn').addEventListener('click', function () { tab('home'); });
+  $('btnSortOpen').addEventListener('click', openSheet);
+  $('sheetClose').addEventListener('click', closeSheet);
+  $('sortSheet').addEventListener('close', renderHome);
+  $('sortSheet').addEventListener('click', function (ev) { if (ev.target === $('sortSheet')) closeSheet(); });   // tap outside the sheet
+  $('showFive').checked = showFive;
+  $('showFive').addEventListener('change', function () { showFive = this.checked; store.set('showFive', showFive); buildRate(); showCard(); });
   $('tabPlayBtn').addEventListener('click', function () { tab('play'); });
   $('tabBoardBtn').addEventListener('click', function () { tab('board'); });
   $('tabAddBtn').addEventListener('click', function () { tab('add'); });
@@ -717,7 +754,7 @@
       else if ((ev.key === 'Enter' || ev.key === ' ') && tg !== 'BUTTON') { ev.preventDefault(); nextQuestion(); }
       return;
     }
-    if ($('tabSort').hidden) return;
+    if (!$('sortSheet').open) return;
     if (/^[0-5]$/.test(ev.key)) rate(Number(ev.key));
     else if (ev.key === ' ') { ev.preventDefault(); reveal(); }
     else if (ev.key === 'Backspace') undo();

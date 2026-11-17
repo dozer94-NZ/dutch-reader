@@ -16,7 +16,7 @@
 </header>
 
 <nav>
-  <button id="tabSortBtn" class="tab on">Sort</button>
+  <button id="tabHomeBtn" class="tab on">Home</button>
   <button id="tabPlayBtn" class="tab">Play</button>
   <button id="tabBoardBtn" class="tab">Board</button>
   <button id="tabAddBtn" class="tab">Add word</button>
@@ -26,49 +26,17 @@
 <main>
   <p id="listStatus" class="muted">Loading…</p>
 
-  <!-- ===== Sort words ===== -->
-  <section id="tabSort">
-    <div class="card">
-      <div class="row">
-        <label class="grow">Show
-          <select id="mode">
-            <option value="unrated">Words I haven't rated yet</option>
-            <option value="all">All words</option>
-            <option value="0">Re-check: 0 Never seen it</option>
-            <option value="1">Re-check: 1 Vaguely recognise it</option>
-            <option value="2">Re-check: 2 Recognised</option>
-            <option value="3">Re-check: 3 Familiar</option>
-            <option value="4">Re-check: 4 Learned</option>
-            <option value="5">Re-check: 5 Never need to practise again</option>
-          </select>
-        </label>
-      </div>
-      <label class="check"><input type="checkbox" id="showEn"> Show the English straight away</label>
-    </div>
-
-    <div id="card" class="card" hidden>
-      <div class="badges"><span id="bLevel" class="chip"></span><span id="bNow" class="chip"></span><span id="bFlag" class="chip flag" hidden>⚑ flagged</span></div>
-      <div id="cWord" class="word"></div>
-      <div id="cEng" class="eng"></div>
-      <button id="btnReveal" class="btn" type="button">Show English</button>
-      <div id="rate" class="rate"></div>
-      <div class="row">
-        <button id="btnBack" class="btn" type="button">↶ Undo</button>
-        <button id="btnSkip" class="btn" type="button">Skip →</button>
-        <button id="btnFlag" class="btn" type="button">⚑ Flag issue</button>
-      </div>
-    </div>
-    <p id="sortMsg" class="muted"></p>
-    <div class="card">
-      <div class="row">
-        <span id="saveMsg" class="grow muted"></span>
-        <button id="btnSave" class="btn primary" type="button">Opslaan in woordenlijst</button>
-      </div>
-    </div>
-    <details class="muted">
-      <summary>What the numbers mean</summary>
-      <p>0 Never seen it: asked first. 1 Vaguely recognise it: asked soon. 2 Recognised: asked fairly soon. 3 Familiar: asked less often. 4 Learned: asked now and then. 5 Never need to practise again: not asked for about a year.</p>
-    </details>
+  <!-- ===== Home ===== -->
+  <section id="tabHome">
+    <button id="btnSortOpen" class="progress" type="button">
+      <span id="progFill" class="pfill"></span>
+      <span class="ptext">
+        <span><span id="progTitle" class="pt1">Sort your words</span><span id="progText" class="pt2"></span></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </span>
+    </button>
+    <p id="homeHint" class="muted"></p>
+    <p id="homeSave" class="muted"></p>
   </section>
 
   <!-- ===== Play ===== -->
@@ -167,6 +135,52 @@
     </div>
   </section>
 </main>
+
+<dialog id="sortSheet" class="sheet">
+  <div id="sheetTop" tabindex="-1" autofocus></div>
+  <div class="grab"></div>
+  <div class="row sheethead">
+    <span id="sheetCount" class="grow muted"></span>
+    <button id="btnBack" class="btn small" type="button">↶ Undo</button>
+    <button id="sheetClose" class="btn small" type="button" aria-label="Close">✕</button>
+  </div>
+  <div id="card" hidden>
+    <div class="badges"><span id="bLevel" class="chip"></span><span id="bNow" class="chip"></span><span id="bFlag" class="chip flag" hidden>⚑ flagged</span></div>
+    <div id="cWord" class="word"></div>
+    <div id="cEng" class="eng"></div>
+    <button id="btnReveal" class="btn" type="button">Show meaning</button>
+    <p class="muted" style="text-align:center;margin:10px 0 6px">How well do you know it?</p>
+    <div id="rate" class="rate"></div>
+    <div id="rateLabels" class="ratelabels"></div>
+    <div class="row">
+      <button id="btnSkip" class="btn small" type="button">Skip →</button>
+      <button id="btnFlag" class="btn small" type="button">⚑ Flag issue</button>
+    </div>
+  </div>
+  <p id="sortMsg" class="muted"></p>
+  <div class="row">
+    <span id="saveMsg" class="grow muted"></span>
+    <button id="btnSave" class="btn small primary" type="button">Opslaan in woordenlijst</button>
+  </div>
+  <details class="muted">
+    <summary>More options</summary>
+    <label>Show
+      <select id="mode">
+        <option value="unrated">Words I haven't rated yet</option>
+        <option value="all">All words</option>
+        <option value="0">Re-check: 0 Never seen it</option>
+        <option value="1">Re-check: 1 Vaguely recognise it</option>
+        <option value="2">Re-check: 2 Recognised</option>
+        <option value="3">Re-check: 3 Familiar</option>
+        <option value="4">Re-check: 4 Learned</option>
+        <option value="5">Re-check: 5 Never need to practise again</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="showEn"> Show the meaning straight away</label>
+    <label class="check"><input type="checkbox" id="showFive"> Also show level 5 (Never need to practise again)</label>
+    <p>0 Never seen it: asked first. 1 Vaguely recognise it: asked soon. 2 Recognised: asked fairly soon. 3 Familiar: asked less often. 4 Learned: asked now and then. 5 Never need to practise again: not asked for about a year. Keys 0 to 4 rate the word, space shows the meaning, Backspace undoes.</p>
+  </details>
+</dialog>
 
 <dialog id="flagDlg">
   <form method="dialog" id="flagForm">
