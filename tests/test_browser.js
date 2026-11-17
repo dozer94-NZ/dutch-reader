@@ -492,7 +492,7 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.click('#btnSettings');
   let ps = await packState();
   ok(PACKS.every(p => ps.some(s => s.name === packName(p.pack) + ' (' + countOf(p.pack).toLocaleString() + ')')), 'Settings lists every pack with its word count: ' + ps.map(s => s.name).join(' | '));
-  ok(ps.filter(s => !/^Architecture/.test(s.name)).every(s => s.on) && ps.find(s => /^Architecture/.test(s.name)).on === false, 'level packs are on and the topic pack is off by default');
+  ok(PACKS.every(p => ps.find(s => s.name.startsWith(p.name + ' (')).on === (p.default === 'yes')), 'level packs are on and the topic pack is off by default');
   await page.keyboard.press('Escape');
   ok(new RegExp('\\b' + NW.toLocaleString() + ' words, Noah').test(await txt(page, '#listStatus')) && (await txt(page, '#homePacks')).startsWith('Packs on: all levels.'), 'default: only the level packs: ' + await txt(page, '#homePacks'));
   await page.click('#btnSettings'); await clickPack('Architecture');
