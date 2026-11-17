@@ -81,3 +81,6 @@ stored in this browser's local storage. If the phone is lost, revoke the token o
 
 ## Credits
 Meaning suggestions: Wiktionary (CC BY-SA). The word levels in the list come from NT2Lex (CC BY-NC-SA 4.0).
+
+## Look (poster style, added 2026-11-17)
+Teal, cream, mustard, coral and orange, black outlines with hard offset shadows, bold Anton lettering and a matte print grain. Fonts are in `fonts/` (Anton, Oswald; both SIL Open Font License) so the app works offline. The grain strength is the `--grain` value at the top of the v5 block in `style.css` (0 = off, .144 = the "18" setting). The Home scene (sun, hills, waves) is plain CSS shapes.
