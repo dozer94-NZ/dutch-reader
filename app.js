@@ -7,7 +7,7 @@
   var M = window.Matcher, T = window.Triage;
   var CFG = { owner: 'dozer94-NZ', repo: 'learning-progress', vocab: 'dutch/vocab/dutch-vocab.csv',
               inbox: 'dutch/inbox.csv', api: 'https://api.github.com' };
-  var VERSION = '2026-11-17.2'; // keep the same as version.json; bump both on every change
+  var VERSION = '2026-11-17.3'; // keep the same as version.json; bump both on every change
   var INBOX_HEADER = 'dutch,english,phrase,who,date,source';
   var ISSUES = { path: 'dutch/issues.csv', header: 'dutch,english,type,note,who,date' };
   var IDEAS = { path: 'dutch/ideas.csv', header: 'date,who,idea' };
@@ -87,9 +87,19 @@
     var r = await fetch(ghUrl(path), { headers: ghHeaders(false), cache: 'no-store' });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('the server said ' + r.status);
-    var j = await r.json();
-    var text = j.content ? fromB64(j.content) : (j.size ? await ghGetRaw(path) : '');
-    return { sha: j.sha, text: text };
+    var body = await r.text(), j = null;
+    try { j = JSON.parse(body); } catch (e) {}
+    if (j && typeof j === 'object' && !Array.isArray(j)) {
+      var text = j.content ? fromB64(j.content) : (j.size ? await ghGetRaw(path) : '');
+      return { sha: j.sha, text: text };
+    }
+    // The server sent the file itself instead of the details (seen on a real phone, 2026-11-17).
+    // Take the version tag (sha) from the folder listing, then read the file fresh.
+    var cut = path.lastIndexOf('/'), name = path.slice(cut + 1);
+    var item = (await ghList(path.slice(0, cut))).filter(function (x) { return x.name === name; })[0];
+    if (!item || !item.sha) throw new Error('could not read the version of ' + path);
+    var fresh = await ghGetRaw(path + '?ref=main&_=' + Date.now());
+    return { sha: item.sha, text: fresh === null ? '' : fresh };
   }
   async function ghList(path) {
     var r = await fetch(ghUrl(path), { headers: ghHeaders(false), cache: 'no-store' });

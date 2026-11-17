@@ -11,7 +11,7 @@ const files = {
   'dutch/anna.csv': { text: fs.readFileSync(path.join(dataDir, 'anna.csv'), 'utf8'), sha: 'a1' },
 };
 const original = { noah: files['dutch/noah.csv'].text, anna: files['dutch/anna.csv'].text };
-let shaN = 1, puts = [], conflictOnce = false, phoneEdit = null, offline = false;
+let shaN = 1, puts = [], conflictOnce = false, phoneEdit = null, offline = false, rawForJson = false;
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const srv = http.createServer((q, s) => {
@@ -52,10 +52,11 @@ async function newPhone(browser, opts = {}) {
       if (m === 'OPTIONS') return req.respond({ status: 204, headers: CORS });
       const fp = decodeURIComponent(u.split('/contents/')[1].split('?')[0]), f = files[fp];
       if (m === 'GET' && fp === 'dutch') return req.respond({ status: 200, headers: CORS, contentType: 'application/json',
-        body: JSON.stringify(Object.keys(files).filter(k => /^dutch\/[^/]+$/.test(k)).map(k => ({ name: k.slice(6), type: 'file' })).concat([{ name: 'vocab', type: 'dir' }])) });
+        body: JSON.stringify(Object.keys(files).filter(k => /^dutch\/[^/]+$/.test(k)).map(k => ({ name: k.slice(6), type: 'file', sha: files[k].sha })).concat([{ name: 'vocab', type: 'dir' }])) });
       if (m === 'GET') {
         if (!f) return req.respond({ status: 404, headers: CORS, body: '{}' });
         if (/raw/.test(req.headers().accept || '')) return req.respond({ status: 200, headers: CORS, contentType: 'text/plain', body: f.text });
+        if (rawForJson) return req.respond({ status: 200, headers: CORS, contentType: 'text/plain', body: f.text });
         return req.respond({ status: 200, headers: CORS, contentType: 'application/json', body: JSON.stringify({ sha: f.sha, size: f.text.length, content: Buffer.from(f.text).toString('base64') }) });
       }
       if (m === 'PUT') {
@@ -139,6 +140,15 @@ const diffLines = (a, b) => { const x = a.split('\n'), y = b.split('\n'), out = 
   await page.waitForFunction(() => /Saved 1/.test(document.getElementById('saveMsg').textContent), { timeout: 10000 });
   const last = rated[11], li = lines.findIndex(l => { const f = M.parseCSV(l)[0]; return f[0] === last.w.dutch && f[1] === last.w.english; });
   ok(files['dutch/noah.csv'].text.split('\n')[li] === lines[li], 'the undone word is back exactly as it was in the file');
+
+  console.log('\n=== server sends the file itself instead of JSON (seen on a real phone) ===');
+  rawForJson = true;
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('3');
+  await page.click('#btnSave');
+  await page.waitForFunction(() => /Saved 1|Couldn't save/.test(document.getElementById('saveMsg').textContent), { timeout: 10000 });
+  ok(/Saved 1/.test(await txt(page, '#saveMsg')), 'save still works when the details come back as raw file text: ' + await txt(page, '#saveMsg'));
+  rawForJson = false;
   await page.select('#mode', '5');
   const cnt5 = await txt(page, '#sortMsg');
   const r11 = rated.slice(0, 11), base5 = vocab.filter(w => !r11.some(r => r.w === w) && T.levelOf(prog.get(T.keyOf(w.dutch, w.english)), today) === 5).length;
